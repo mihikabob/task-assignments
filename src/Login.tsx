@@ -22,9 +22,6 @@ export default function Login() {
       <div className="login-wrap">
         <section className="login">
           <div className="login-copy">
-            <div className="brand-mark" style={{ background: "#c9842a" }}>
-              TH
-            </div>
             <h1>Tech Internship Task Hub</h1>
           </div>
           <div className="login-form">
@@ -39,9 +36,6 @@ export default function Login() {
     <div className="login-wrap">
       <section className="login">
         <div className="login-copy">
-          <div className="brand-mark" style={{ background: "#c9842a" }}>
-            TH
-          </div>
           <h1>Tech Internship Task Hub</h1>
         </div>
 
@@ -60,11 +54,6 @@ export default function Login() {
           </button>
 
           {displayError && <p className="error">{displayError}</p>}
-
-          <p className="hint" style={{ marginTop: 16 }}>
-            Use a Google account that is on the internship roster. If Google succeeds
-            but you bounce back here, the real error will show above.
-          </p>
         </div>
       </section>
     </div>
