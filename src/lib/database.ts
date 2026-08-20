@@ -62,6 +62,12 @@ export function mapProfile(row: ProfileRow): Person {
   };
 }
 
-export function formatDbError(error: { message?: string } | null) {
-  return error?.message ?? "Something went wrong. Try again.";
+export function formatDbError(error: { message?: string } | Error | null | unknown) {
+  if (!error) return "Something went wrong. Try again.";
+  if (typeof error === "string") return error;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: string }).message;
+    if (message) return message;
+  }
+  return "Something went wrong. Try again.";
 }

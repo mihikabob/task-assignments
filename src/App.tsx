@@ -11,8 +11,7 @@ import { useApp, useCurrentUser } from "./store";
 import type { Page } from "./types";
 
 export default function App() {
-  const { session, ready } = useApp();
-  const user = useCurrentUser();
+  const { session, ready, currentUser } = useApp();
 
   if (!ready) {
     return (
@@ -22,7 +21,7 @@ export default function App() {
     );
   }
 
-  if (!session || !user) return <Login />;
+  if (!session || !currentUser) return <Login />;
   return <Workspace key={session.userId} />;
 }
 

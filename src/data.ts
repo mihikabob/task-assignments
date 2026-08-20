@@ -27,6 +27,7 @@ export const people: Person[] = [
   member("Eliana Tekie", "100033289@mvla.net", "intern"),
   member("Nathalie Zhang", "100034692@mvla.net", "intern"),
   member("Mihika Bobbarjung", "100033492@mvla.net", "intern"),
+  member("Mihika Bobbarjung", "mihikabob10@gmail.com", "intern"),
   member("Caroline Yu", "100034056@mvla.net", "intern"),
   member("Colby Liu", "100033448@mvla.net", "intern"),
   member("Emma Fei", "100034010@mvla.net", "intern"),

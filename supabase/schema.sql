@@ -2,7 +2,7 @@
 
 create extension if not exists "pgcrypto";
 
--- Roster is the source of truth for who may sign in and their role.
+-- Roster is the allowlist: only listed emails may sign in.
 create table if not exists public.roster (
   email text primary key,
   name text not null,
@@ -23,6 +23,7 @@ insert into public.roster (email, name, role) values
   ('100033289@mvla.net', 'Eliana Tekie', 'intern'),
   ('100034692@mvla.net', 'Nathalie Zhang', 'intern'),
   ('100033492@mvla.net', 'Mihika Bobbarjung', 'intern'),
+  ('mihikabob10@gmail.com', 'Mihika Bobbarjung', 'intern'),
   ('100034056@mvla.net', 'Caroline Yu', 'intern'),
   ('100033448@mvla.net', 'Colby Liu', 'intern'),
   ('100034010@mvla.net', 'Emma Fei', 'intern'),
@@ -59,16 +60,19 @@ alter table public.roster enable row level security;
 alter table public.profiles enable row level security;
 alter table public.tasks enable row level security;
 
+drop policy if exists "roster read for signed in" on public.roster;
 create policy "roster read for signed in"
   on public.roster for select
   to authenticated
   using (exists (select 1 from public.profiles p where p.id = auth.uid()));
 
+drop policy if exists "profiles read for signed in" on public.profiles;
 create policy "profiles read for signed in"
   on public.profiles for select
   to authenticated
   using (exists (select 1 from public.profiles p where p.id = auth.uid()));
 
+drop policy if exists "tasks read for signed in" on public.tasks;
 create policy "tasks read for signed in"
   on public.tasks for select
   to authenticated
@@ -101,8 +105,8 @@ begin
   end if;
 
   user_email := lower(coalesce(auth.jwt() ->> 'email', ''));
-  if user_email = '' or right(user_email, 9) != '@mvla.net' then
-    raise exception 'Sign in with your @mvla.net account';
+  if user_email = '' then
+    raise exception 'Google did not return an email address';
   end if;
 
   select * into roster_row from public.roster where email = user_email;
@@ -110,7 +114,10 @@ begin
     raise exception 'This account is not on the internship roster';
   end if;
 
-  avatar := coalesce(auth.jwt() -> 'user_metadata' ->> 'avatar_url', auth.jwt() -> 'user_metadata' ->> 'picture');
+  avatar := coalesce(
+    auth.jwt() -> 'user_metadata' ->> 'avatar_url',
+    auth.jwt() -> 'user_metadata' ->> 'picture'
+  );
 
   insert into public.profiles (id, email, name, role, picture)
   values (auth.uid(), roster_row.email, roster_row.name, roster_row.role, avatar)
@@ -326,5 +333,10 @@ grant execute on function public.update_task_status(uuid, text) to authenticated
 grant execute on function public.delete_task(uuid) to authenticated;
 grant execute on function public.discard_completed() to authenticated;
 
-alter publication supabase_realtime add table public.tasks;
--- If the line above errors, open Supabase → Database → Publications and add public.tasks to supabase_realtime.
+do $$
+begin
+  alter publication supabase_realtime add table public.tasks;
+exception
+  when duplicate_object then null;
+end $$;
+-- If realtime still is not live, open Supabase → Database → Publications and add public.tasks to supabase_realtime.

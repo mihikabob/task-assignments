@@ -2,13 +2,16 @@ import { useState } from "react";
 import { supabaseConfigured, useApp } from "./store";
 
 export default function Login() {
-  const { signInWithGoogle } = useApp();
+  const { signInWithGoogle, authError, clearAuthError } = useApp();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const displayError = error || authError || "";
 
   async function handleSignIn() {
     setLoading(true);
     setError("");
+    clearAuthError();
     const message = await signInWithGoogle();
     if (message) setError(message);
     setLoading(false);
@@ -56,7 +59,12 @@ export default function Login() {
             {loading ? "Redirecting…" : "Sign in with Google"}
           </button>
 
-          {error && <p className="error">{error}</p>}
+          {displayError && <p className="error">{displayError}</p>}
+
+          <p className="hint" style={{ marginTop: 16 }}>
+            Use a Google account that is on the internship roster. If Google succeeds
+            but you bounce back here, the real error will show above.
+          </p>
         </div>
       </section>
     </div>

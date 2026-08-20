@@ -7,13 +7,24 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { formatDbError, mapProfile, mapRoster, mapTask, type ProfileRow, type RosterRow, type TaskRow } from "./lib/database";
+import {
+  formatDbError,
+  mapProfile,
+  mapRoster,
+  mapTask,
+  type ProfileRow,
+  type RosterRow,
+  type TaskRow,
+} from "./lib/database";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import type { Person, Session, Task, TaskStatus } from "./types";
 
 interface AppState {
   ready: boolean;
   session: Session | null;
+  currentUser: Person | null;
+  authError: string | null;
+  clearAuthError: () => void;
   tasks: Task[];
   people: Person[];
   internRoster: Person[];
@@ -21,7 +32,11 @@ interface AppState {
   personById: (id: string | null) => Person | undefined;
   signInWithGoogle: () => Promise<string | null>;
   signOut: () => Promise<void>;
-  addTask: (input: { title: string; description: string; assigneeId: string | null }) => Promise<string | null>;
+  addTask: (input: {
+    title: string;
+    description: string;
+    assigneeId: string | null;
+  }) => Promise<string | null>;
   claimTask: (taskId: string) => Promise<string | null>;
   assignTask: (taskId: string, assigneeId: string | null) => Promise<string | null>;
   updateStatus: (taskId: string, status: TaskStatus) => Promise<string | null>;
@@ -38,8 +53,19 @@ function profileToSession(profile: Person): Session {
 export function AppProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
+  const [currentUser, setCurrentUser] = useState<Person | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+
+  const clearAuthError = useCallback(() => setAuthError(null), []);
+
+  const resetLocalUser = useCallback(() => {
+    setSession(null);
+    setCurrentUser(null);
+    setPeople([]);
+    setTasks([]);
+  }, []);
 
   const loadPeople = useCallback(async () => {
     const [{ data: roster, error: rosterError }, { data: profiles, error: profilesError }] =
@@ -69,9 +95,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const bootstrapUser = useCallback(async () => {
     const { data: profile, error } = await supabase.rpc("sync_profile").single();
     if (error) throw error;
+    if (!profile) throw new Error("Could not load your profile.");
+
     const person = mapProfile(profile as ProfileRow);
+    setCurrentUser(person);
     setSession(profileToSession(person));
-    await Promise.all([loadPeople(), loadTasks()]);
+    setAuthError(null);
+
+    try {
+      await Promise.all([loadPeople(), loadTasks()]);
+    } catch (loadError) {
+      // Profile sync succeeded — keep the user signed in even if lists fail.
+      console.error(loadError);
+    }
   }, [loadPeople, loadTasks]);
 
   useEffect(() => {
@@ -81,6 +117,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     let mounted = true;
+    let bootstrapping = false;
+
+    async function runBootstrap() {
+      if (bootstrapping) return;
+      bootstrapping = true;
+      try {
+        await bootstrapUser();
+      } catch (error) {
+        const message = formatDbError(error as { message?: string });
+        await supabase.auth.signOut();
+        if (mounted) {
+          resetLocalUser();
+          setAuthError(message);
+        }
+      } finally {
+        bootstrapping = false;
+        if (mounted) setReady(true);
+      }
+    }
 
     async function init() {
       const {
@@ -88,44 +143,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } = await supabase.auth.getSession();
 
       if (authSession) {
-        try {
-          await bootstrapUser();
-        } catch {
-          await supabase.auth.signOut();
-          if (mounted) setSession(null);
-        }
+        await runBootstrap();
+      } else if (mounted) {
+        setReady(true);
       }
-
-      if (mounted) setReady(true);
     }
 
-    init();
+    void init();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, authSession) => {
-      if (!mounted) return;
-      if (event === "SIGNED_OUT" || !authSession) {
-        setSession(null);
-        setPeople([]);
-        setTasks([]);
-        return;
-      }
-      if (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
-        try {
-          await bootstrapUser();
-        } catch {
-          await supabase.auth.signOut();
-          setSession(null);
+    } = supabase.auth.onAuthStateChange((event, authSession) => {
+      // Avoid deadlocks: never await inside this callback.
+      setTimeout(() => {
+        if (!mounted) return;
+
+        if (event === "SIGNED_OUT" || !authSession) {
+          resetLocalUser();
+          return;
         }
-      }
+
+        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+          void runBootstrap();
+        }
+      }, 0);
     });
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [bootstrapUser]);
+  }, [bootstrapUser, resetLocalUser]);
 
   useEffect(() => {
     if (!supabaseConfigured || !session) return;
@@ -147,7 +195,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [session, loadTasks]);
 
   const internRoster = useMemo(
-    () => people.filter((person) => person.role === "intern").sort((a, b) => a.name.localeCompare(b.name)),
+    () =>
+      people
+        .filter((person) => person.role === "intern")
+        .sort((a, b) => a.name.localeCompare(b.name)),
     [people],
   );
 
@@ -160,6 +211,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => ({
       ready,
       session,
+      currentUser,
+      authError,
+      clearAuthError,
       tasks,
       people,
       internRoster,
@@ -169,20 +223,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!supabaseConfigured) {
           return "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.";
         }
+        setAuthError(null);
         const { error } = await supabase.auth.signInWithOAuth({
           provider: "google",
           options: {
             redirectTo: window.location.origin,
-            queryParams: { hd: "mvla.net" },
           },
         });
         return error ? formatDbError(error) : null;
       },
       signOut: async () => {
         await supabase.auth.signOut();
-        setSession(null);
-        setPeople([]);
-        setTasks([]);
+        resetLocalUser();
       },
       addTask: async ({ title, description, assigneeId }) => {
         const { error } = await supabase.rpc("add_task", {
@@ -231,7 +283,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return null;
       },
     }),
-    [ready, session, tasks, people, internRoster, assignableRoster, loadTasks],
+    [
+      ready,
+      session,
+      currentUser,
+      authError,
+      clearAuthError,
+      tasks,
+      people,
+      internRoster,
+      assignableRoster,
+      loadTasks,
+      resetLocalUser,
+    ],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
@@ -244,9 +308,7 @@ export function useApp() {
 }
 
 export function useCurrentUser() {
-  const { session, people } = useApp();
-  if (!session) return null;
-  return people.find((person) => person.id === session.userId) ?? null;
+  return useApp().currentUser;
 }
 
 export { supabaseConfigured };
