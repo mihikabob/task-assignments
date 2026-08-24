@@ -16,7 +16,7 @@ import {
   type RosterRow,
   type TaskRow,
 } from "./lib/database";
-import { DEMO_PASSWORD, resolveLoginEmail } from "./data";
+import { DEMO_PASSWORD, people as seedPeople, resolveLoginEmail, uniquePeopleByName } from "./data";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import type { Person, Session, Task, TaskStatus } from "./types";
 
@@ -50,6 +50,36 @@ const AppContext = createContext<AppState | null>(null);
 
 function profileToSession(profile: Person): Session {
   return { userId: profile.email, role: profile.role };
+}
+
+/** Prefer a live roster email for the same person so assign_task validates. */
+function resolveAssigneeForDb(
+  assigneeId: string | null,
+  livePeople: Person[],
+  roster: Person[],
+): string | null {
+  if (!assigneeId) return null;
+  if (livePeople.some((person) => person.id === assigneeId)) return assigneeId;
+
+  const named =
+    roster.find((person) => person.id === assigneeId) ??
+    seedPeople.find((person) => person.id === assigneeId);
+  if (!named) return assigneeId;
+
+  const nameKey = named.name.trim().toLowerCase();
+  const liveMatch =
+    livePeople.find(
+      (person) =>
+        person.name.trim().toLowerCase() === nameKey && person.email.endsWith("@mvla.net"),
+    ) ??
+    livePeople.find((person) => person.name.trim().toLowerCase() === nameKey);
+  if (liveMatch) return liveMatch.id;
+
+  const school = seedPeople.find(
+    (person) =>
+      person.name.trim().toLowerCase() === nameKey && person.email.endsWith("@mvla.net"),
+  );
+  return school?.id ?? named.id;
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -198,14 +228,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const internRoster = useMemo(
     () =>
-      people
-        .filter((person) => person.role === "intern")
-        .sort((a, b) => a.name.localeCompare(b.name)),
+      uniquePeopleByName(
+        people.filter((person) => person.role === "intern"),
+        seedPeople.filter((person) => person.role === "intern"),
+      ),
     [people],
   );
 
   const assignableRoster = useMemo(
-    () => [...people].sort((a, b) => a.name.localeCompare(b.name)),
+    () => uniquePeopleByName(people, seedPeople),
     [people],
   );
 
@@ -220,7 +251,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       people,
       internRoster,
       assignableRoster,
-      personById: (id) => (id ? people.find((person) => person.id === id) : undefined),
+      personById: (id) => {
+        if (!id) return undefined;
+        return (
+          people.find((person) => person.id === id) ??
+          assignableRoster.find((person) => person.id === id) ??
+          seedPeople.find((person) => person.id === id)
+        );
+      },
       signInWithGoogle: async () => {
         if (!supabaseConfigured) {
           return "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.";
@@ -263,50 +301,128 @@ export function AppProvider({ children }: { children: ReactNode }) {
         resetLocalUser();
       },
       addTask: async ({ title, description, assigneeId }) => {
-        const { error } = await supabase.rpc("add_task", {
-          p_title: title,
-          p_description: description,
-          p_assignee_id: assigneeId,
-        });
-        if (error) return formatDbError(error);
-        await loadTasks();
-        return null;
+        try {
+          const { data, error } = await supabase.rpc("add_task", {
+            p_title: title,
+            p_description: description,
+            p_assignee_id: assigneeId,
+          });
+          if (error) return formatDbError(error);
+          if (data) {
+            const mapped = mapTask(data as TaskRow);
+            setTasks((current) => [mapped, ...current.filter((task) => task.id !== mapped.id)]);
+          }
+          try {
+            await loadTasks();
+          } catch (loadError) {
+            console.error(loadError);
+          }
+          return null;
+        } catch (error) {
+          return formatDbError(error);
+        }
       },
       claimTask: async (taskId) => {
-        const { error } = await supabase.rpc("claim_task", { p_task_id: taskId });
-        if (error) return formatDbError(error);
-        await loadTasks();
-        return null;
+        try {
+          const { error } = await supabase.rpc("claim_task", { p_task_id: taskId });
+          if (error) return formatDbError(error);
+          await loadTasks();
+          return null;
+        } catch (error) {
+          return formatDbError(error);
+        }
       },
       assignTask: async (taskId, assigneeId) => {
-        const { error } = await supabase.rpc("assign_task", {
-          p_task_id: taskId,
-          p_assignee_id: assigneeId,
-        });
-        if (error) return formatDbError(error);
-        await loadTasks();
-        return null;
+        try {
+          const resolvedAssignee = resolveAssigneeForDb(
+            assigneeId,
+            people,
+            assignableRoster,
+          );
+          const previous = tasks.find((task) => task.id === taskId);
+
+          // Optimistic UI so the leader dropdown updates immediately.
+          setTasks((current) =>
+            current.map((task) =>
+              task.id === taskId
+                ? {
+                    ...task,
+                    assigneeId: resolvedAssignee,
+                    assignedById: resolvedAssignee
+                      ? (session?.userId ?? task.assignedById)
+                      : null,
+                    status: resolvedAssignee
+                      ? task.status === "unclaimed"
+                        ? "just_started"
+                        : task.status
+                      : "unclaimed",
+                    updatedAt: new Date().toISOString(),
+                  }
+                : task,
+            ),
+          );
+
+          const { data, error } = await supabase.rpc("assign_task", {
+            p_task_id: taskId,
+            p_assignee_id: resolvedAssignee,
+          });
+          if (error) {
+            if (previous) {
+              setTasks((current) =>
+                current.map((task) => (task.id === taskId ? previous : task)),
+              );
+            }
+            return formatDbError(error);
+          }
+          if (data) {
+            const mapped = mapTask(data as TaskRow);
+            setTasks((current) =>
+              current.map((task) => (task.id === mapped.id ? mapped : task)),
+            );
+          } else {
+            try {
+              await loadTasks();
+            } catch (loadError) {
+              console.error(loadError);
+            }
+          }
+          return null;
+        } catch (error) {
+          return formatDbError(error);
+        }
       },
       updateStatus: async (taskId, status) => {
-        const { error } = await supabase.rpc("update_task_status", {
-          p_task_id: taskId,
-          p_status: status,
-        });
-        if (error) return formatDbError(error);
-        await loadTasks();
-        return null;
+        try {
+          const { error } = await supabase.rpc("update_task_status", {
+            p_task_id: taskId,
+            p_status: status,
+          });
+          if (error) return formatDbError(error);
+          await loadTasks();
+          return null;
+        } catch (error) {
+          return formatDbError(error);
+        }
       },
       deleteTask: async (taskId) => {
-        const { error } = await supabase.rpc("delete_task", { p_task_id: taskId });
-        if (error) return formatDbError(error);
-        await loadTasks();
-        return null;
+        try {
+          const { error } = await supabase.rpc("delete_task", { p_task_id: taskId });
+          if (error) return formatDbError(error);
+          await loadTasks();
+          return null;
+        } catch (error) {
+          return formatDbError(error);
+        }
       },
       discardCompleted: async () => {
-        const { error } = await supabase.rpc("discard_completed");
-        if (error) return formatDbError(error);
-        await loadTasks();
-        return null;
+        try {
+          const { error } = await supabase.rpc("discard_completed");
+          if (error) return formatDbError(error);
+          await loadTasks();
+          return null;
+        } catch (error) {
+          return formatDbError(error);
+        }
       },
     }),
     [

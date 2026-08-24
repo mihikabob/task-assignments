@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Avatar from "./Avatar";
 import type { Task, TaskStatus } from "./types";
 import { useApp, useCurrentUser } from "./store";
@@ -30,9 +30,13 @@ export function TaskCard({
   showDescription?: boolean;
   onOpen?: () => void;
 }) {
-  const { claimTask, assignTask, updateStatus, deleteTask, assignableRoster, personById } = useApp();
+  const { claimTask, assignTask, updateStatus, deleteTask, assignableRoster, personById } =
+    useApp();
   const user = useCurrentUser();
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [assignError, setAssignError] = useState("");
+  const [assigning, setAssigning] = useState(false);
+
   const assignee = personById(task.assigneeId);
   const assigner = personById(task.assignedById);
   const isAssignee = user?.id === task.assigneeId;
@@ -43,6 +47,32 @@ export function TaskCard({
   const removeLabel = isComplete ? "Discard" : "Delete";
   const showAssignedBy =
     user?.role === "intern" && isAssignee && Boolean(assigner);
+
+  // Keep the select in sync when the task's assignee email differs from the
+  // unique-by-name option value (school vs personal email).
+  const assignSelectValue = useMemo(() => {
+    if (!task.assigneeId) return "";
+    if (assignableRoster.some((person) => person.id === task.assigneeId)) {
+      return task.assigneeId;
+    }
+    if (!assignee) return task.assigneeId;
+    const match = assignableRoster.find(
+      (person) => person.name.trim().toLowerCase() === assignee.name.trim().toLowerCase(),
+    );
+    return match?.id ?? task.assigneeId;
+  }, [task.assigneeId, assignableRoster, assignee]);
+
+  useEffect(() => {
+    setAssignError("");
+  }, [task.id, task.assigneeId]);
+
+  async function handleAssign(nextId: string) {
+    setAssigning(true);
+    setAssignError("");
+    const message = await assignTask(task.id, nextId || null);
+    if (message) setAssignError(message);
+    setAssigning(false);
+  }
 
   return (
     <article className="task-card">
@@ -93,9 +123,10 @@ export function TaskCard({
         {showAssign && user?.role === "leader" && (
           <select
             className="select"
-            value={task.assigneeId ?? ""}
+            value={assignSelectValue}
+            disabled={assigning}
             onChange={(event) => {
-              void assignTask(task.id, event.target.value || null);
+              void handleAssign(event.target.value);
             }}
           >
             <option value="">Unassigned</option>
@@ -128,7 +159,9 @@ export function TaskCard({
           <div className="task-actions">
             {confirmRemove ? (
               <>
-                <span className="muted">{isComplete ? "Discard this completed task?" : "Delete this task?"}</span>
+                <span className="muted">
+                  {isComplete ? "Discard this completed task?" : "Delete this task?"}
+                </span>
                 <button className="btn ghost sm" onClick={() => setConfirmRemove(false)}>
                   Keep
                 </button>
@@ -149,6 +182,8 @@ export function TaskCard({
           </div>
         )}
       </div>
+
+      {assignError && <p className="error">{assignError}</p>}
     </article>
   );
 }

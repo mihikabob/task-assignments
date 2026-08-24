@@ -63,6 +63,34 @@ export function resolveLoginEmail(name: string): string | null {
   return (school ?? matches[0]).email;
 }
 
+/**
+ * One row per person name. Live `preferred` emails win (valid Supabase assignees);
+ * `fallback` fills gaps. Prefers @mvla.net when a person has multiple emails.
+ */
+export function uniquePeopleByName(preferred: Person[], fallback: Person[] = []): Person[] {
+  const byName = new Map<string, Person>();
+
+  const putPreferSchool = (person: Person, target: Map<string, Person>) => {
+    const key = person.name.trim().toLowerCase();
+    const existing = target.get(key);
+    if (!existing) {
+      target.set(key, person);
+      return;
+    }
+    if (person.email.endsWith("@mvla.net") && !existing.email.endsWith("@mvla.net")) {
+      target.set(key, person);
+    }
+  };
+
+  for (const person of fallback) putPreferSchool(person, byName);
+
+  const liveByName = new Map<string, Person>();
+  for (const person of preferred) putPreferSchool(person, liveByName);
+  for (const [key, person] of liveByName) byName.set(key, person);
+
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export const LEADER_EMAILS = new Set(leaders.map((person) => person.email));
 export const INTERN_EMAILS = new Set(interns.map((person) => person.email));
 export const ROSTER_EMAILS = new Set(people.map((person) => person.email));
