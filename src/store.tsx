@@ -302,16 +302,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       addTask: async ({ title, description, assigneeId }) => {
         try {
+          const resolvedAssignee = resolveAssigneeForDb(
+            assigneeId,
+            people,
+            assignableRoster,
+          );
           const { data, error } = await supabase.rpc("add_task", {
             p_title: title,
             p_description: description,
-            p_assignee_id: assigneeId,
+            p_assignee_id: resolvedAssignee,
           });
           if (error) return formatDbError(error);
-          if (data) {
-            const mapped = mapTask(data as TaskRow);
-            setTasks((current) => [mapped, ...current.filter((task) => task.id !== mapped.id)]);
+
+          const row = (Array.isArray(data) ? data[0] : data) as TaskRow | null;
+          if (!row?.id) {
+            return "Task was not saved. Run supabase/migrate_fix_task_persistence.sql in the Supabase SQL Editor.";
           }
+
+          const mapped = mapTask(row);
+          setTasks((current) => [mapped, ...current.filter((task) => task.id !== mapped.id)]);
+
+          const { data: verified, error: verifyError } = await supabase
+            .from("tasks")
+            .select("id")
+            .eq("id", mapped.id)
+            .maybeSingle();
+          if (verifyError) return formatDbError(verifyError);
+          if (!verified) {
+            setTasks((current) => current.filter((task) => task.id !== mapped.id));
+            return "Task did not persist in the database. Run supabase/migrate_fix_task_persistence.sql in the Supabase SQL Editor.";
+          }
+
           try {
             await loadTasks();
           } catch (loadError) {

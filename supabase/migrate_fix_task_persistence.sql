@@ -1,71 +1,10 @@
--- Tech Internship Task Hub — run once in Supabase SQL Editor
+-- Fix tasks not persisting / not visible to interns after a leader publishes.
+-- Cause: RLS on tasks with no INSERT policy can block SECURITY DEFINER writes
+-- when row security is forced; SELECT policies that depend on profiles can also fail.
+--
+-- Run this in the Supabase SQL Editor, then try Add task again.
 
-create extension if not exists "pgcrypto";
-
--- Roster is the allowlist: only listed emails may sign in.
-create table if not exists public.roster (
-  email text primary key,
-  name text not null,
-  role text not null check (role in ('leader', 'intern'))
-);
-
-insert into public.roster (email, name, role) values
-  ('kip.glazer@mvla.net', 'Kip Glazer', 'leader'),
-  ('100034112@mvla.net', 'Myra Jain', 'leader'),
-  ('myraniaj@gmail.com', 'Myra Jain', 'leader'),
-  ('100031930@mvla.net', 'Cinty Lin', 'leader'),
-  ('cinty.lin.cinty@gmail.com', 'Cinty Lin', 'leader'),
-  ('100032240@mvla.net', 'Yash Maheshwari', 'leader'),
-  ('yashmahe2018@gmail.com', 'Yash Maheshwari', 'leader'),
-  ('100033302@mvla.net', 'Jayan Nair', 'leader'),
-  ('nairjay30@gmail.com', 'Jayan Nair', 'leader'),
-  ('100032262@mvla.net', 'Keshav Pillutla', 'leader'),
-  ('kcp7006@gmail.com', 'Keshav Pillutla', 'leader'),
-  ('100032027@mvla.net', 'Emma Teng', 'leader'),
-  ('emmakteng@gmail.com', 'Emma Teng', 'leader'),
-  ('100035436@mvla.net', 'Rishi Jindal', 'intern'),
-  ('100033884@mvla.net', 'Manuel Diuk', 'intern'),
-  ('100033684@mvla.net', 'Raya Aghazadeh', 'intern'),
-  ('100033289@mvla.net', 'Eliana Tekie', 'intern'),
-  ('100034692@mvla.net', 'Nathalie Zhang', 'intern'),
-  ('100033492@mvla.net', 'Mihika Bobbarjung', 'intern'),
-  ('mihikabob10@gmail.com', 'Mihika Bobbarjung', 'intern'),
-  ('100034056@mvla.net', 'Caroline Yu', 'intern'),
-  ('100033448@mvla.net', 'Colby Liu', 'intern'),
-  ('100034010@mvla.net', 'Emma Fei', 'intern'),
-  ('100033172@mvla.net', 'Lucas Nam', 'intern'),
-  ('100032190@mvla.net', 'Ilan Gerber', 'intern')
-on conflict (email) do update set
-  name = excluded.name,
-  role = excluded.role;
-
-create table if not exists public.profiles (
-  id uuid primary key references auth.users (id) on delete cascade,
-  email text not null unique references public.roster (email),
-  name text not null,
-  role text not null check (role in ('leader', 'intern')),
-  picture text
-);
-
-create table if not exists public.tasks (
-  id uuid primary key default gen_random_uuid(),
-  title text not null,
-  description text not null default '',
-  status text not null check (status in ('unclaimed', 'just_started', 'in_progress', 'complete')),
-  assignee_id text references public.roster (email),
-  assigned_by_id text references public.roster (email),
-  created_by text not null references public.roster (email),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists tasks_status_idx on public.tasks (status);
-create index if not exists tasks_assignee_idx on public.tasks (assignee_id);
-
-alter table public.roster enable row level security;
-alter table public.profiles enable row level security;
-alter table public.tasks enable row level security;
-
+-- Any signed-in user with a session can read the shared board.
 drop policy if exists "roster read for signed in" on public.roster;
 create policy "roster read for signed in"
   on public.roster for select
@@ -93,49 +32,6 @@ set search_path = public
 set row_security = off
 as $$
   select * from public.profiles where id = auth.uid();
-$$;
-
-create or replace function public.sync_profile()
-returns public.profiles
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  user_email text;
-  roster_row public.roster%rowtype;
-  profile_row public.profiles%rowtype;
-  avatar text;
-begin
-  if auth.uid() is null then
-    raise exception 'Not authenticated';
-  end if;
-
-  user_email := lower(coalesce(auth.jwt() ->> 'email', ''));
-  if user_email = '' then
-    raise exception 'Google did not return an email address';
-  end if;
-
-  select * into roster_row from public.roster where email = user_email;
-  if not found then
-    raise exception 'This account is not on the internship roster';
-  end if;
-
-  avatar := coalesce(
-    auth.jwt() -> 'user_metadata' ->> 'avatar_url',
-    auth.jwt() -> 'user_metadata' ->> 'picture'
-  );
-
-  insert into public.profiles (id, email, name, role, picture)
-  values (auth.uid(), roster_row.email, roster_row.name, roster_row.role, avatar)
-  on conflict (id) do update
-    set name = excluded.name,
-        role = excluded.role,
-        picture = coalesce(excluded.picture, public.profiles.picture)
-  returning * into profile_row;
-
-  return profile_row;
-end;
 $$;
 
 create or replace function public.add_task(
@@ -341,57 +237,12 @@ begin
 end;
 $$;
 
--- Name + password login: returns the roster email used for Auth (prefer @mvla.net).
-create or replace function public.resolve_password_login(p_name text, p_password text)
-returns text
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  matched_email text;
-begin
-  if nullif(trim(coalesce(p_name, '')), '') is null then
-    raise exception 'Enter your full name';
-  end if;
-
-  if p_password is distinct from 'password' then
-    raise exception 'Invalid name or password';
-  end if;
-
-  select email into matched_email
-  from public.roster
-  where lower(trim(name)) = lower(trim(p_name))
-  order by
-    case when email like '%@mvla.net' then 0 else 1 end,
-    email
-  limit 1;
-
-  if matched_email is null then
-    raise exception 'Invalid name or password';
-  end if;
-
-  return matched_email;
-end;
-$$;
-
-grant usage on schema public to anon, authenticated;
-grant select on public.roster to authenticated;
-grant select on public.profiles to authenticated;
-grant select on public.tasks to authenticated;
-grant execute on function public.sync_profile() to authenticated;
-grant execute on function public.resolve_password_login(text, text) to anon, authenticated;
 grant execute on function public.add_task(text, text, text) to authenticated;
 grant execute on function public.claim_task(uuid) to authenticated;
 grant execute on function public.assign_task(uuid, text) to authenticated;
 grant execute on function public.update_task_status(uuid, text) to authenticated;
 grant execute on function public.delete_task(uuid) to authenticated;
 grant execute on function public.discard_completed() to authenticated;
-
-do $$
-begin
-  alter publication supabase_realtime add table public.tasks;
-exception
-  when duplicate_object then null;
-end $$;
--- If realtime still is not live, open Supabase → Database → Publications and add public.tasks to supabase_realtime.
+grant select on public.tasks to authenticated;
+grant select on public.roster to authenticated;
+grant select on public.profiles to authenticated;
