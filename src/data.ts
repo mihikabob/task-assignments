@@ -44,6 +44,25 @@ export const people: Person[] = [
 export const leaders = people.filter((person) => person.role === "leader");
 export const interns = people.filter((person) => person.role === "intern");
 
+/** Unique full names for password login (one entry per person). */
+export const loginNames = [...new Set(people.map((person) => person.name))].sort((a, b) =>
+  a.localeCompare(b),
+);
+
+export const DEMO_PASSWORD = "password";
+
+/** Map a full name to the Auth email (prefer @mvla.net when duplicates exist). */
+export function resolveLoginEmail(name: string): string | null {
+  const needle = name.trim().toLowerCase();
+  if (!needle) return null;
+
+  const matches = people.filter((person) => person.name.toLowerCase() === needle);
+  if (matches.length === 0) return null;
+
+  const school = matches.find((person) => person.email.endsWith("@mvla.net"));
+  return (school ?? matches[0]).email;
+}
+
 export const LEADER_EMAILS = new Set(leaders.map((person) => person.email));
 export const INTERN_EMAILS = new Set(interns.map((person) => person.email));
 export const ROSTER_EMAILS = new Set(people.map((person) => person.email));

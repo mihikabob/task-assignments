@@ -327,11 +327,46 @@ begin
 end;
 $$;
 
+-- Name + password login: returns the roster email used for Auth (prefer @mvla.net).
+create or replace function public.resolve_password_login(p_name text, p_password text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  matched_email text;
+begin
+  if nullif(trim(coalesce(p_name, '')), '') is null then
+    raise exception 'Enter your full name';
+  end if;
+
+  if p_password is distinct from 'password' then
+    raise exception 'Invalid name or password';
+  end if;
+
+  select email into matched_email
+  from public.roster
+  where lower(trim(name)) = lower(trim(p_name))
+  order by
+    case when email like '%@mvla.net' then 0 else 1 end,
+    email
+  limit 1;
+
+  if matched_email is null then
+    raise exception 'Invalid name or password';
+  end if;
+
+  return matched_email;
+end;
+$$;
+
 grant usage on schema public to anon, authenticated;
 grant select on public.roster to authenticated;
 grant select on public.profiles to authenticated;
 grant select on public.tasks to authenticated;
 grant execute on function public.sync_profile() to authenticated;
+grant execute on function public.resolve_password_login(text, text) to anon, authenticated;
 grant execute on function public.add_task(text, text, text) to authenticated;
 grant execute on function public.claim_task(uuid) to authenticated;
 grant execute on function public.assign_task(uuid, text) to authenticated;

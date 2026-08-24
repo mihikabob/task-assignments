@@ -16,6 +16,7 @@ import {
   type RosterRow,
   type TaskRow,
 } from "./lib/database";
+import { DEMO_PASSWORD, resolveLoginEmail } from "./data";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import type { Person, Session, Task, TaskStatus } from "./types";
 
@@ -31,6 +32,7 @@ interface AppState {
   assignableRoster: Person[];
   personById: (id: string | null) => Person | undefined;
   signInWithGoogle: () => Promise<string | null>;
+  signInWithNamePassword: (name: string, password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
   addTask: (input: {
     title: string;
@@ -231,6 +233,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
           },
         });
         return error ? formatDbError(error) : null;
+      },
+      signInWithNamePassword: async (name, password) => {
+        if (!supabaseConfigured) {
+          return "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.";
+        }
+        setAuthError(null);
+
+        const email = resolveLoginEmail(name);
+        if (!email || password !== DEMO_PASSWORD) {
+          return "Invalid name or password";
+        }
+
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password: DEMO_PASSWORD,
+        });
+        if (error) {
+          const message = formatDbError(error);
+          if (/invalid login credentials/i.test(message)) {
+            return "Invalid name or password. Run supabase/migrate_password_login.sql in the Supabase SQL Editor first (and enable the Email auth provider).";
+          }
+          return message;
+        }
+        return null;
       },
       signOut: async () => {
         await supabase.auth.signOut();

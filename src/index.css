@@ -875,6 +875,24 @@ label {
   margin-top: 8px;
 }
 
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
 .profile-block {
   display: grid;
   gap: 6px;
