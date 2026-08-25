@@ -27,12 +27,12 @@ begin
     raise exception 'Invalid name or password';
   end if;
 
-  -- One account per person: prefer @mvla.net when multiple emails exist.
+  -- One account per person (personal Gmail or placeholder auth email).
   select email into matched_email
   from public.roster
   where lower(trim(name)) = lower(trim(p_name))
   order by
-    case when email like '%@mvla.net' then 0 else 1 end,
+    case when email like '%@gmail.com' then 0 else 1 end,
     email
   limit 1;
 
@@ -62,7 +62,7 @@ begin
     from public.roster
     order by
       lower(trim(name)),
-      case when email like '%@mvla.net' then 0 else 1 end,
+      case when email like '%@gmail.com' then 0 else 1 end,
       email
   loop
     select id into uid from auth.users where lower(email) = lower(r.email);

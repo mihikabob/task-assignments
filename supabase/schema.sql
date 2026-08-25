@@ -10,31 +10,24 @@ create table if not exists public.roster (
 );
 
 insert into public.roster (email, name, role) values
-  ('kip.glazer@mvla.net', 'Kip Glazer', 'leader'),
-  ('100034112@mvla.net', 'Myra Jain', 'leader'),
+  ('kip.glazer@taskhub.local', 'Kip Glazer', 'leader'),
   ('myraniaj@gmail.com', 'Myra Jain', 'leader'),
-  ('100031930@mvla.net', 'Cinty Lin', 'leader'),
   ('cinty.lin.cinty@gmail.com', 'Cinty Lin', 'leader'),
-  ('100032240@mvla.net', 'Yash Maheshwari', 'leader'),
   ('yashmahe2018@gmail.com', 'Yash Maheshwari', 'leader'),
-  ('100033302@mvla.net', 'Jayan Nair', 'leader'),
   ('nairjay30@gmail.com', 'Jayan Nair', 'leader'),
-  ('100032262@mvla.net', 'Keshav Pillutla', 'leader'),
   ('kcp7006@gmail.com', 'Keshav Pillutla', 'leader'),
-  ('100032027@mvla.net', 'Emma Teng', 'leader'),
   ('emmakteng@gmail.com', 'Emma Teng', 'leader'),
-  ('100035436@mvla.net', 'Rishi Jindal', 'intern'),
-  ('100033884@mvla.net', 'Manuel Diuk', 'intern'),
-  ('100033684@mvla.net', 'Raya Aghazadeh', 'intern'),
-  ('100033289@mvla.net', 'Eliana Tekie', 'intern'),
-  ('100034692@mvla.net', 'Nathalie Zhang', 'intern'),
-  ('100033492@mvla.net', 'Mihika Bobbarjung', 'intern'),
+  ('rishi.jindal@taskhub.local', 'Rishi Jindal', 'intern'),
+  ('manuel.diuk@taskhub.local', 'Manuel Diuk', 'intern'),
+  ('raya.aghazadeh@taskhub.local', 'Raya Aghazadeh', 'intern'),
+  ('eliana.tekie@taskhub.local', 'Eliana Tekie', 'intern'),
+  ('nathalie.zhang@taskhub.local', 'Nathalie Zhang', 'intern'),
   ('mihikabob10@gmail.com', 'Mihika Bobbarjung', 'intern'),
-  ('100034056@mvla.net', 'Caroline Yu', 'intern'),
-  ('100033448@mvla.net', 'Colby Liu', 'intern'),
-  ('100034010@mvla.net', 'Emma Fei', 'intern'),
-  ('100033172@mvla.net', 'Lucas Nam', 'intern'),
-  ('100032190@mvla.net', 'Ilan Gerber', 'intern')
+  ('caroline.yu@taskhub.local', 'Caroline Yu', 'intern'),
+  ('colby.liu@taskhub.local', 'Colby Liu', 'intern'),
+  ('emma.fei@taskhub.local', 'Emma Fei', 'intern'),
+  ('lucas.nam@taskhub.local', 'Lucas Nam', 'intern'),
+  ('ilan.gerber@taskhub.local', 'Ilan Gerber', 'intern')
 on conflict (email) do update set
   name = excluded.name,
   role = excluded.role;
@@ -341,7 +334,7 @@ begin
 end;
 $$;
 
--- Name + password login: returns the roster email used for Auth (prefer @mvla.net).
+-- Name + password login: returns the roster email used for Auth.
 create or replace function public.resolve_password_login(p_name text, p_password text)
 returns text
 language plpgsql
@@ -363,7 +356,7 @@ begin
   from public.roster
   where lower(trim(name)) = lower(trim(p_name))
   order by
-    case when email like '%@mvla.net' then 0 else 1 end,
+    case when email like '%@gmail.com' then 0 else 1 end,
     email
   limit 1;
 

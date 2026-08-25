@@ -1,10 +1,13 @@
 import Avatar from "./Avatar";
+import { displayEmail } from "./data";
 import { useApp, useCurrentUser } from "./store";
 
 export default function ProfileDrawer({ onClose }: { onClose: () => void }) {
   const { signOut } = useApp();
   const user = useCurrentUser();
   if (!user) return null;
+
+  const email = displayEmail(user.email);
 
   return (
     <div className="overlay" onClick={onClose}>
@@ -27,7 +30,7 @@ export default function ProfileDrawer({ onClose }: { onClose: () => void }) {
           </div>
           <div className="profile-row">
             <span>Email</span>
-            <strong>{user.email}</strong>
+            <strong>{email ?? "None (name + password login)"}</strong>
           </div>
         </div>
 

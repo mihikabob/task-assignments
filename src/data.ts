@@ -1,44 +1,63 @@
 import type { Person, Role, Task } from "./types";
 
 export const LEADER_ACCESS_CODE = "LEAD-2026";
+export const PLACEHOLDER_EMAIL_DOMAIN = "taskhub.local";
 
-function member(name: string, email: string, role: Role): Person {
-  const normalized = email.trim().toLowerCase();
+function slugifyName(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+}
+
+/** Auth/roster id: personal Gmail when we have one, otherwise a non-public placeholder. */
+export function authEmailFor(name: string, personalEmail?: string | null) {
+  if (personalEmail?.trim()) return personalEmail.trim().toLowerCase();
+  return `${slugifyName(name)}@${PLACEHOLDER_EMAIL_DOMAIN}`;
+}
+
+export function isPlaceholderEmail(email: string | null | undefined) {
+  if (!email) return true;
+  return email.toLowerCase().endsWith(`@${PLACEHOLDER_EMAIL_DOMAIN}`);
+}
+
+export function displayEmail(email: string | null | undefined) {
+  if (!email || isPlaceholderEmail(email)) return null;
+  return email;
+}
+
+function member(name: string, role: Role, personalEmail?: string | null): Person {
+  const email = authEmailFor(name, personalEmail);
   return {
-    id: normalized,
+    id: email,
     name,
-    email: normalized,
+    email,
     role,
     title: role === "leader" ? "Program Lead" : "Intern",
   };
 }
 
+/** One roster row per person. Personal Gmail when known; otherwise password-only placeholder. */
 export const people: Person[] = [
-  member("Kip Glazer", "kip.glazer@mvla.net", "leader"),
-  member("Myra Jain", "100034112@mvla.net", "leader"),
-  member("Myra Jain", "myraniaj@gmail.com", "leader"),
-  member("Cinty Lin", "100031930@mvla.net", "leader"),
-  member("Cinty Lin", "cinty.lin.cinty@gmail.com", "leader"),
-  member("Yash Maheshwari", "100032240@mvla.net", "leader"),
-  member("Yash Maheshwari", "yashmahe2018@gmail.com", "leader"),
-  member("Jayan Nair", "100033302@mvla.net", "leader"),
-  member("Jayan Nair", "nairjay30@gmail.com", "leader"),
-  member("Keshav Pillutla", "100032262@mvla.net", "leader"),
-  member("Keshav Pillutla", "kcp7006@gmail.com", "leader"),
-  member("Emma Teng", "100032027@mvla.net", "leader"),
-  member("Emma Teng", "emmakteng@gmail.com", "leader"),
-  member("Rishi Jindal", "100035436@mvla.net", "intern"),
-  member("Manuel Diuk", "100033884@mvla.net", "intern"),
-  member("Raya Aghazadeh", "100033684@mvla.net", "intern"),
-  member("Eliana Tekie", "100033289@mvla.net", "intern"),
-  member("Nathalie Zhang", "100034692@mvla.net", "intern"),
-  member("Mihika Bobbarjung", "100033492@mvla.net", "intern"),
-  member("Mihika Bobbarjung", "mihikabob10@gmail.com", "intern"),
-  member("Caroline Yu", "100034056@mvla.net", "intern"),
-  member("Colby Liu", "100033448@mvla.net", "intern"),
-  member("Emma Fei", "100034010@mvla.net", "intern"),
-  member("Lucas Nam", "100033172@mvla.net", "intern"),
-  member("Ilan Gerber", "100032190@mvla.net", "intern"),
+  member("Kip Glazer", "leader"),
+  member("Myra Jain", "leader", "myraniaj@gmail.com"),
+  member("Cinty Lin", "leader", "cinty.lin.cinty@gmail.com"),
+  member("Yash Maheshwari", "leader", "yashmahe2018@gmail.com"),
+  member("Jayan Nair", "leader", "nairjay30@gmail.com"),
+  member("Keshav Pillutla", "leader", "kcp7006@gmail.com"),
+  member("Emma Teng", "leader", "emmakteng@gmail.com"),
+  member("Rishi Jindal", "intern"),
+  member("Manuel Diuk", "intern"),
+  member("Raya Aghazadeh", "intern"),
+  member("Eliana Tekie", "intern"),
+  member("Nathalie Zhang", "intern"),
+  member("Mihika Bobbarjung", "intern", "mihikabob10@gmail.com"),
+  member("Caroline Yu", "intern"),
+  member("Colby Liu", "intern"),
+  member("Emma Fei", "intern"),
+  member("Lucas Nam", "intern"),
+  member("Ilan Gerber", "intern"),
 ];
 
 export const leaders = people.filter((person) => person.role === "leader");
@@ -51,41 +70,36 @@ export const loginNames = [...new Set(people.map((person) => person.name))].sort
 
 export const DEMO_PASSWORD = "password";
 
-/** Map a full name to the Auth email (prefer @mvla.net when duplicates exist). */
+/** Map a full name to the single Auth/roster email for that person. */
 export function resolveLoginEmail(name: string): string | null {
   const needle = name.trim().toLowerCase();
   if (!needle) return null;
-
-  const matches = people.filter((person) => person.name.toLowerCase() === needle);
-  if (matches.length === 0) return null;
-
-  const school = matches.find((person) => person.email.endsWith("@mvla.net"));
-  return (school ?? matches[0]).email;
+  return people.find((person) => person.name.toLowerCase() === needle)?.email ?? null;
 }
 
 /**
- * One row per person name. Live `preferred` emails win (valid Supabase assignees);
- * `fallback` fills gaps. Prefers @mvla.net when a person has multiple emails.
+ * One row per person name. Live roster wins; among duplicates prefer real Gmail
+ * over placeholder auth emails.
  */
 export function uniquePeopleByName(preferred: Person[], fallback: Person[] = []): Person[] {
   const byName = new Map<string, Person>();
 
-  const putPreferSchool = (person: Person, target: Map<string, Person>) => {
+  const putPreferRealEmail = (person: Person, target: Map<string, Person>) => {
     const key = person.name.trim().toLowerCase();
     const existing = target.get(key);
     if (!existing) {
       target.set(key, person);
       return;
     }
-    if (person.email.endsWith("@mvla.net") && !existing.email.endsWith("@mvla.net")) {
+    if (!isPlaceholderEmail(person.email) && isPlaceholderEmail(existing.email)) {
       target.set(key, person);
     }
   };
 
-  for (const person of fallback) putPreferSchool(person, byName);
+  for (const person of fallback) putPreferRealEmail(person, byName);
 
   const liveByName = new Map<string, Person>();
-  for (const person of preferred) putPreferSchool(person, liveByName);
+  for (const person of preferred) putPreferRealEmail(person, liveByName);
   for (const [key, person] of liveByName) byName.set(key, person);
 
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -100,13 +114,13 @@ export function rosterByEmail(email: string) {
   return people.find((person) => person.email === normalized);
 }
 
-const KIP = "kip.glazer@mvla.net";
-const MYRA = "100034112@mvla.net";
-const JAYAN = "100033302@mvla.net";
-const RISHI = "100035436@mvla.net";
-const RAYA = "100033684@mvla.net";
-const CAROLINE = "100034056@mvla.net";
-const LUCAS = "100033172@mvla.net";
+const KIP = authEmailFor("Kip Glazer");
+const MYRA = authEmailFor("Myra Jain", "myraniaj@gmail.com");
+const JAYAN = authEmailFor("Jayan Nair", "nairjay30@gmail.com");
+const RISHI = authEmailFor("Rishi Jindal");
+const RAYA = authEmailFor("Raya Aghazadeh");
+const CAROLINE = authEmailFor("Caroline Yu");
+const LUCAS = authEmailFor("Lucas Nam");
 
 export const seedTasks: Task[] = [
   {

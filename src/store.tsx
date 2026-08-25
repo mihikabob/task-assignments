@@ -67,19 +67,10 @@ function resolveAssigneeForDb(
   if (!named) return assigneeId;
 
   const nameKey = named.name.trim().toLowerCase();
-  const liveMatch =
-    livePeople.find(
-      (person) =>
-        person.name.trim().toLowerCase() === nameKey && person.email.endsWith("@mvla.net"),
-    ) ??
-    livePeople.find((person) => person.name.trim().toLowerCase() === nameKey);
-  if (liveMatch) return liveMatch.id;
-
-  const school = seedPeople.find(
-    (person) =>
-      person.name.trim().toLowerCase() === nameKey && person.email.endsWith("@mvla.net"),
+  const liveMatch = livePeople.find(
+    (person) => person.name.trim().toLowerCase() === nameKey,
   );
-  return school?.id ?? named.id;
+  return liveMatch?.id ?? named.id;
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
