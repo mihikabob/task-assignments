@@ -40,7 +40,7 @@ function member(name: string, role: Role, personalEmail?: string | null): Person
 
 /** One roster row per person. Personal Gmail when known; otherwise password-only placeholder. */
 export const people: Person[] = [
-  member("Kip Glazer", "leader"),
+  member("Kip Glazer", "leader", "kip.glazer@mvla.net"),
   member("Myra Jain", "leader", "myraniaj@gmail.com"),
   member("Cinty Lin", "leader", "cinty.lin.cinty@gmail.com"),
   member("Yash Maheshwari", "leader", "yashmahe2018@gmail.com"),
@@ -114,7 +114,7 @@ export function rosterByEmail(email: string) {
   return people.find((person) => person.email === normalized);
 }
 
-const KIP = authEmailFor("Kip Glazer");
+const KIP = authEmailFor("Kip Glazer", "kip.glazer@mvla.net");
 const MYRA = authEmailFor("Myra Jain", "myraniaj@gmail.com");
 const JAYAN = authEmailFor("Jayan Nair", "nairjay30@gmail.com");
 const RISHI = authEmailFor("Rishi Jindal");

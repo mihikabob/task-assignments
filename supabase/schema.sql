@@ -10,7 +10,7 @@ create table if not exists public.roster (
 );
 
 insert into public.roster (email, name, role) values
-  ('kip.glazer@taskhub.local', 'Kip Glazer', 'leader'),
+  ('kip.glazer@mvla.net', 'Kip Glazer', 'leader'),
   ('myraniaj@gmail.com', 'Myra Jain', 'leader'),
   ('cinty.lin.cinty@gmail.com', 'Cinty Lin', 'leader'),
   ('yashmahe2018@gmail.com', 'Yash Maheshwari', 'leader'),
