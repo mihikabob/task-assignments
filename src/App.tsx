@@ -51,7 +51,7 @@ function Workspace() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <div className="brand-mark">TH</div>
+          <img className="brand-mark" src="/logo.png" alt="MVHS Tech Internship" />
           <div>
             <div className="brand-name">Tech Internship Task Hub</div>
             <div className="brand-sub">

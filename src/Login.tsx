@@ -33,12 +33,14 @@ export default function Login() {
   if (!supabaseConfigured) {
     return (
       <div className="login-wrap">
+        <div className="login-copy">
+          <h1>Tech Internship Task Hub</h1>
+        </div>
         <section className="login">
-          <div className="login-copy">
-            <h1>Tech Internship Task Hub</h1>
-          </div>
-          <div className="login-form">
-            <p className="error">Supabase is not configured for this deployment.</p>
+          <div className="login-shell">
+            <div className="login-form">
+              <p className="error">Supabase is not configured for this deployment.</p>
+            </div>
           </div>
         </section>
       </div>
@@ -47,73 +49,75 @@ export default function Login() {
 
   return (
     <div className="login-wrap">
+      <div className="login-copy">
+        <h1>Tech Internship Task Hub</h1>
+        <p>Sign in to open the leader or intern workspace for your role.</p>
+      </div>
+
       <section className="login">
-        <div className="login-copy">
-          <h1>Tech Internship Task Hub</h1>
-          <p>Sign in with your name to open the leader or intern workspace for your role.</p>
-        </div>
+        <div className="login-shell">
+          <div className="login-form">
+            <p className="page-kicker">Sign in</p>
+            <h2 style={{ fontSize: 28 }}>Welcome back</h2>
 
-        <div className="login-form">
-          <p className="page-kicker">Sign in</p>
-          <h2 style={{ fontSize: 28 }}>Welcome back</h2>
+            <form onSubmit={handlePasswordSignIn}>
+              <label>
+                Full name
+                <input
+                  className="field"
+                  list="roster-names"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="First Last"
+                  autoComplete="username"
+                  required
+                />
+                <datalist id="roster-names">
+                  {loginNames.map((loginName) => (
+                    <option key={loginName} value={loginName} />
+                  ))}
+                </datalist>
+              </label>
 
-          <form onSubmit={handlePasswordSignIn}>
-            <label>
-              Full name
-              <input
-                className="field"
-                list="roster-names"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="First Last"
-                autoComplete="username"
-                required
-              />
-              <datalist id="roster-names">
-                {loginNames.map((loginName) => (
-                  <option key={loginName} value={loginName} />
-                ))}
-              </datalist>
-            </label>
+              <label>
+                Password
+                <input
+                  className="field"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
 
-            <label>
-              Password
-              <input
-                className="field"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Password"
-                autoComplete="current-password"
-                required
-              />
-            </label>
+              <button
+                className="btn primary"
+                type="submit"
+                style={{ width: "100%" }}
+                disabled={loading !== null}
+              >
+                {loading === "password" ? "Signing in…" : "Sign in"}
+              </button>
+            </form>
+
+            <div className="login-divider">
+              <span>or</span>
+            </div>
 
             <button
-              className="btn primary"
-              type="submit"
+              className="btn ghost"
+              type="button"
               style={{ width: "100%" }}
+              onClick={handleGoogleSignIn}
               disabled={loading !== null}
             >
-              {loading === "password" ? "Signing in…" : "Sign in"}
+              {loading === "google" ? "Redirecting…" : "Sign in with Google"}
             </button>
-          </form>
 
-          <div className="login-divider">
-            <span>or</span>
+            {displayError && <p className="error">{displayError}</p>}
           </div>
-
-          <button
-            className="btn ghost"
-            type="button"
-            style={{ width: "100%" }}
-            onClick={handleGoogleSignIn}
-            disabled={loading !== null}
-          >
-            {loading === "google" ? "Redirecting…" : "Sign in with Google"}
-          </button>
-
-          {displayError && <p className="error">{displayError}</p>}
         </div>
       </section>
     </div>
