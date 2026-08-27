@@ -99,6 +99,35 @@ export function TaskCard({
           <p className="muted">No description yet.</p>
         ))}
 
+      {showDescription && task.attachments.length > 0 && (
+        <div className="task-attachments">
+          <p className="attach-heading">Attachments</p>
+          <ul className="attach-list">
+            {task.attachments.map((attachment) => (
+              <li key={attachment.id}>
+                <a
+                  className="attach-chip"
+                  href={attachment.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span className="attach-kind">
+                    {attachment.kind === "link" ? "Link" : "File"}
+                  </span>
+                  <span className="attach-name">{attachment.label}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {!showDescription && task.attachments.length > 0 && (
+        <p className="attach-count muted">
+          {task.attachments.length} attachment{task.attachments.length === 1 ? "" : "s"}
+        </p>
+      )}
+
       <div className="task-meta">
         {assignee ? (
           <div className="assignee">

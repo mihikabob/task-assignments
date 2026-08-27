@@ -1,16 +1,64 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
+import {
+  ACCEPTED_FILE_TYPES,
+  formatFileSize,
+  MAX_ATTACHMENT_BYTES,
+  normalizeLinkUrl,
+} from "./lib/attachments";
 import { useApp } from "./store";
+
+type PendingLink = { id: string; label: string; url: string };
+type PendingFile = { id: string; file: File };
 
 export default function AddTaskModal({ onClose }: { onClose: () => void }) {
   const { addTask, assignableRoster } = useApp();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkLabel, setLinkLabel] = useState("");
+  const [links, setLinks] = useState<PendingLink[]>([]);
+  const [files, setFiles] = useState<PendingFile[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const interns = assignableRoster.filter((person) => person.role === "intern");
   const leaders = assignableRoster.filter((person) => person.role === "leader");
+
+  function addLink() {
+    const url = normalizeLinkUrl(linkUrl);
+    if (!url) {
+      setError("Enter a valid link (https://…).");
+      return;
+    }
+    setError("");
+    setLinks((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        label: linkLabel.trim() || url,
+        url,
+      },
+    ]);
+    setLinkUrl("");
+    setLinkLabel("");
+  }
+
+  function addFiles(list: FileList | null) {
+    if (!list?.length) return;
+    setError("");
+    const next: PendingFile[] = [];
+    for (const file of Array.from(list)) {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        setError(`"${file.name}" is over the 10 MB limit.`);
+        continue;
+      }
+      next.push({ id: crypto.randomUUID(), file });
+    }
+    if (next.length) setFiles((current) => [...current, ...next]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -22,6 +70,8 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
         title,
         description,
         assigneeId: assigneeId || null,
+        links: links.map(({ label, url }) => ({ label, url })),
+        files: files.map((item) => item.file),
       });
       if (message) {
         setError(message);
@@ -97,6 +147,84 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
               )}
             </select>
           </label>
+
+          <div className="attach-section">
+            <p className="attach-heading">Attachments</p>
+            <p className="muted attach-hint">
+              Add links or upload files (PDF, images, docs — up to 10 MB each). Interns can open
+              them from the task.
+            </p>
+
+            <div className="attach-link-row">
+              <input
+                className="field"
+                value={linkLabel}
+                onChange={(event) => setLinkLabel(event.target.value)}
+                placeholder="Link label (optional)"
+              />
+              <input
+                className="field"
+                value={linkUrl}
+                onChange={(event) => setLinkUrl(event.target.value)}
+                placeholder="https://…"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addLink();
+                  }
+                }}
+              />
+              <button className="btn ghost" type="button" onClick={addLink}>
+                Add link
+              </button>
+            </div>
+
+            <div className="attach-file-row">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ACCEPTED_FILE_TYPES}
+                onChange={(event) => addFiles(event.target.files)}
+              />
+            </div>
+
+            {(links.length > 0 || files.length > 0) && (
+              <ul className="attach-pending">
+                {links.map((link) => (
+                  <li key={link.id}>
+                    <span className="attach-kind">Link</span>
+                    <span className="attach-name">{link.label}</span>
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      onClick={() => setLinks((current) => current.filter((item) => item.id !== link.id))}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+                {files.map((item) => (
+                  <li key={item.id}>
+                    <span className="attach-kind">File</span>
+                    <span className="attach-name">
+                      {item.file.name}
+                      <span className="muted"> · {formatFileSize(item.file.size)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      onClick={() =>
+                        setFiles((current) => current.filter((entry) => entry.id !== item.id))
+                      }
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           {error && <p className="error">{error}</p>}
 

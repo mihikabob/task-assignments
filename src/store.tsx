@@ -18,7 +18,13 @@ import {
 } from "./lib/database";
 import { DEMO_PASSWORD, people as seedPeople, resolveLoginEmail, uniquePeopleByName } from "./data";
 import { supabase, supabaseConfigured } from "./lib/supabase";
-import type { Person, Session, Task, TaskStatus } from "./types";
+import {
+  ATTACHMENT_BUCKET,
+  MAX_ATTACHMENT_BYTES,
+  newAttachmentId,
+  sanitizeFileName,
+} from "./lib/attachments";
+import type { Person, Session, Task, TaskAttachment, TaskStatus } from "./types";
 
 interface AppState {
   ready: boolean;
@@ -38,6 +44,8 @@ interface AppState {
     title: string;
     description: string;
     assigneeId: string | null;
+    links?: { label: string; url: string }[];
+    files?: File[];
   }) => Promise<string | null>;
   claimTask: (taskId: string) => Promise<string | null>;
   assignTask: (taskId: string, assigneeId: string | null) => Promise<string | null>;
@@ -291,26 +299,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         resetLocalUser();
       },
-      addTask: async ({ title, description, assigneeId }) => {
+      addTask: async ({ title, description, assigneeId, links = [], files = [] }) => {
         try {
           const resolvedAssignee = resolveAssigneeForDb(
             assigneeId,
             people,
             assignableRoster,
           );
+
+          for (const file of files) {
+            if (file.size > MAX_ATTACHMENT_BYTES) {
+              return `"${file.name}" is over the 10 MB limit.`;
+            }
+          }
+
+          const linkAttachments: TaskAttachment[] = links.map((link) => ({
+            id: newAttachmentId(),
+            kind: "link",
+            label: link.label.trim() || link.url,
+            url: link.url,
+          }));
+
           const { data, error } = await supabase.rpc("add_task", {
             p_title: title,
             p_description: description,
             p_assignee_id: resolvedAssignee,
+            p_attachments: linkAttachments,
           });
-          if (error) return formatDbError(error);
+          if (error) {
+            const message = formatDbError(error);
+            if (/could not find the function|p_attachments|attachments/i.test(message)) {
+              return "Attachments are not enabled yet. Run supabase/migrate_task_attachments.sql in the Supabase SQL Editor.";
+            }
+            return message;
+          }
 
           const row = (Array.isArray(data) ? data[0] : data) as TaskRow | null;
           if (!row?.id) {
             return "Task was not saved. Run supabase/migrate_fix_task_persistence.sql in the Supabase SQL Editor.";
           }
 
-          const mapped = mapTask(row);
+          let mapped = mapTask(row);
           setTasks((current) => [mapped, ...current.filter((task) => task.id !== mapped.id)]);
 
           const { data: verified, error: verifyError } = await supabase
@@ -322,6 +351,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (!verified) {
             setTasks((current) => current.filter((task) => task.id !== mapped.id));
             return "Task did not persist in the database. Run supabase/migrate_fix_task_persistence.sql in the Supabase SQL Editor.";
+          }
+
+          if (files.length > 0) {
+            const fileAttachments: TaskAttachment[] = [];
+            for (const file of files) {
+              const attachmentId = newAttachmentId();
+              const path = `${mapped.id}/${attachmentId}-${sanitizeFileName(file.name)}`;
+              const { error: uploadError } = await supabase.storage
+                .from(ATTACHMENT_BUCKET)
+                .upload(path, file, {
+                  cacheControl: "3600",
+                  upsert: false,
+                  contentType: file.type || undefined,
+                });
+              if (uploadError) {
+                return `Task created, but "${file.name}" failed to upload: ${formatDbError(uploadError)}. Run supabase/migrate_task_attachments.sql if Storage is missing.`;
+              }
+              const { data: publicUrl } = supabase.storage
+                .from(ATTACHMENT_BUCKET)
+                .getPublicUrl(path);
+              fileAttachments.push({
+                id: attachmentId,
+                kind: "file",
+                label: file.name,
+                url: publicUrl.publicUrl,
+                path,
+                mime: file.type || undefined,
+                size: file.size,
+              });
+            }
+
+            const allAttachments = [...mapped.attachments, ...fileAttachments];
+            const { data: updated, error: attachError } = await supabase.rpc(
+              "set_task_attachments",
+              {
+                p_task_id: mapped.id,
+                p_attachments: allAttachments,
+              },
+            );
+            if (attachError) return formatDbError(attachError);
+            if (updated) {
+              mapped = mapTask((Array.isArray(updated) ? updated[0] : updated) as TaskRow);
+              setTasks((current) =>
+                current.map((task) => (task.id === mapped.id ? mapped : task)),
+              );
+            }
           }
 
           try {
@@ -418,6 +493,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       deleteTask: async (taskId) => {
         try {
+          const task = tasks.find((item) => item.id === taskId);
+          const paths = (task?.attachments ?? [])
+            .map((attachment) => attachment.path)
+            .filter((path): path is string => Boolean(path));
+          if (paths.length > 0) {
+            await supabase.storage.from(ATTACHMENT_BUCKET).remove(paths);
+          }
           const { error } = await supabase.rpc("delete_task", { p_task_id: taskId });
           if (error) return formatDbError(error);
           await loadTasks();

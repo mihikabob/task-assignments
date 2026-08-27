@@ -2,6 +2,18 @@ export type Role = "leader" | "intern";
 
 export type TaskStatus = "unclaimed" | "just_started" | "in_progress" | "complete";
 
+export type AttachmentKind = "link" | "file";
+
+export interface TaskAttachment {
+  id: string;
+  kind: AttachmentKind;
+  label: string;
+  url: string;
+  path?: string;
+  mime?: string;
+  size?: number;
+}
+
 export interface Person {
   id: string;
   name: string;
@@ -21,6 +33,7 @@ export interface Task {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  attachments: TaskAttachment[];
 }
 
 export interface Session {

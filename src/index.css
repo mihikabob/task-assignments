@@ -407,6 +407,111 @@ p {
   color: var(--ink-soft);
 }
 
+.task-attachments {
+  margin-top: 16px;
+}
+
+.attach-heading {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.attach-hint {
+  font-size: 13px;
+  font-weight: 500;
+  margin: -4px 0 10px;
+}
+
+.attach-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.attach-link-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.attach-file-row input[type="file"] {
+  width: 100%;
+  font-size: 13px;
+}
+
+.attach-pending,
+.attach-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.attach-pending li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.attach-chip:hover {
+  border-color: rgba(214, 168, 0, 0.7);
+  background: #fffdf5;
+}
+
+.attach-kind {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8a6a00;
+  background: rgba(255, 198, 0, 0.22);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+.attach-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attach-count {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .attach-link-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .back-link {
   border: 0;
   background: transparent;
@@ -722,6 +827,8 @@ p {
 
 .modal.wide {
   width: min(680px, 100%);
+  max-height: min(90vh, 900px);
+  overflow: auto;
 }
 
 .modal .page-kicker {

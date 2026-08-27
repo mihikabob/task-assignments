@@ -1,4 +1,4 @@
-import type { Person, Task, TaskStatus } from "../types";
+import type { Person, Task, TaskAttachment, TaskStatus } from "../types";
 
 export interface TaskRow {
   id: string;
@@ -10,6 +10,7 @@ export interface TaskRow {
   created_by: string;
   created_at: string;
   updated_at: string;
+  attachments?: TaskAttachment[] | null;
 }
 
 export interface ProfileRow {
@@ -37,6 +38,19 @@ export function mapRoster(row: RosterRow, picture?: string | null): Person {
   };
 }
 
+function mapAttachments(raw: TaskRow["attachments"]): TaskAttachment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is TaskAttachment =>
+      Boolean(item) &&
+      typeof item === "object" &&
+      typeof item.id === "string" &&
+      (item.kind === "link" || item.kind === "file") &&
+      typeof item.label === "string" &&
+      typeof item.url === "string",
+  );
+}
+
 export function mapTask(row: TaskRow): Task {
   return {
     id: row.id,
@@ -48,6 +62,7 @@ export function mapTask(row: TaskRow): Task {
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    attachments: mapAttachments(row.attachments),
   };
 }
 

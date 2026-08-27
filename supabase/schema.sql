@@ -48,6 +48,7 @@ create table if not exists public.tasks (
   assignee_id text references public.roster (email),
   assigned_by_id text references public.roster (email),
   created_by text not null references public.roster (email),
+  attachments jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -131,10 +132,14 @@ begin
 end;
 $$;
 
+-- Drop older add_task signatures so only the attachments-aware version remains.
+drop function if exists public.add_task(text, text, text);
+
 create or replace function public.add_task(
   p_title text,
   p_description text,
-  p_assignee_id text default null
+  p_assignee_id text default null,
+  p_attachments jsonb default '[]'::jsonb
 )
 returns public.tasks
 language plpgsql
@@ -145,6 +150,7 @@ as $$
 declare
   me public.profiles%rowtype;
   task_row public.tasks%rowtype;
+  safe_attachments jsonb;
 begin
   select * into me from public.current_profile();
   if me.id is null then
@@ -164,16 +170,71 @@ begin
     raise exception 'Invalid assignee';
   end if;
 
-  insert into public.tasks (title, description, status, assignee_id, assigned_by_id, created_by)
+  if p_attachments is null or jsonb_typeof(p_attachments) is distinct from 'array' then
+    safe_attachments := '[]'::jsonb;
+  else
+    safe_attachments := p_attachments;
+  end if;
+
+  insert into public.tasks (
+    title,
+    description,
+    status,
+    assignee_id,
+    assigned_by_id,
+    created_by,
+    attachments
+  )
   values (
     trim(p_title),
     trim(coalesce(p_description, '')),
     case when p_assignee_id is null then 'unclaimed' else 'just_started' end,
     p_assignee_id,
     case when p_assignee_id is null then null else me.email end,
-    me.email
+    me.email,
+    safe_attachments
   )
   returning * into task_row;
+
+  return task_row;
+end;
+$$;
+
+create or replace function public.set_task_attachments(
+  p_task_id uuid,
+  p_attachments jsonb
+)
+returns public.tasks
+language plpgsql
+security definer
+set search_path = public
+set row_security = off
+as $$
+declare
+  me public.profiles%rowtype;
+  task_row public.tasks%rowtype;
+  safe_attachments jsonb;
+begin
+  select * into me from public.current_profile();
+  if me.role != 'leader' then
+    raise exception 'Leaders only';
+  end if;
+
+  if p_attachments is null or jsonb_typeof(p_attachments) is distinct from 'array' then
+    safe_attachments := '[]'::jsonb;
+  else
+    safe_attachments := p_attachments;
+  end if;
+
+  update public.tasks
+  set attachments = safe_attachments,
+      updated_at = now()
+  where id = p_task_id
+  returning * into task_row;
+
+  if not found then
+    raise exception 'Task not found';
+  end if;
 
   return task_row;
 end;
@@ -374,7 +435,8 @@ grant select on public.profiles to authenticated;
 grant select on public.tasks to authenticated;
 grant execute on function public.sync_profile() to authenticated;
 grant execute on function public.resolve_password_login(text, text) to anon, authenticated;
-grant execute on function public.add_task(text, text, text) to authenticated;
+grant execute on function public.add_task(text, text, text, jsonb) to authenticated;
+grant execute on function public.set_task_attachments(uuid, jsonb) to authenticated;
 grant execute on function public.claim_task(uuid) to authenticated;
 grant execute on function public.assign_task(uuid, text) to authenticated;
 grant execute on function public.update_task_status(uuid, text) to authenticated;
