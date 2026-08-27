@@ -43,12 +43,18 @@ interface AppState {
   addTask: (input: {
     title: string;
     description: string;
-    assigneeId: string | null;
+    assigneeIds: string[];
+    multiplePeople: boolean;
     links?: { label: string; url: string }[];
     files?: File[];
   }) => Promise<string | null>;
   claimTask: (taskId: string) => Promise<string | null>;
-  assignTask: (taskId: string, assigneeId: string | null) => Promise<string | null>;
+  assignTask: (
+    taskId: string,
+    assigneeIds: string[],
+    multiplePeople: boolean,
+  ) => Promise<string | null>;
+  setPartners: (taskId: string, assigneeIds: string[]) => Promise<string | null>;
   updateStatus: (taskId: string, status: TaskStatus) => Promise<string | null>;
   deleteTask: (taskId: string) => Promise<string | null>;
   discardCompleted: () => Promise<string | null>;
@@ -60,25 +66,111 @@ function profileToSession(profile: Person): Session {
   return { userId: profile.email, role: profile.role };
 }
 
-/** Prefer a live roster email for the same person so assign_task validates. */
-function resolveAssigneeForDb(
-  assigneeId: string | null,
+function isMissingRpc(message: string) {
+  return (
+    /could not find the function/i.test(message) ||
+    /PGRST202/i.test(message) ||
+    /schema cache/i.test(message)
+  );
+}
+
+async function rpcAssignTask(taskId: string, assigneeIds: string[], multiple: boolean) {
+  const resolved = assigneeIds.filter(Boolean);
+
+  if (!multiple || resolved.length <= 1) {
+    return supabase.rpc("assign_task", {
+      p_task_id: taskId,
+      p_assignee_id: resolved[0] ?? null,
+    });
+  }
+
+  return supabase.rpc("assign_task", {
+    p_task_id: taskId,
+    p_assignee_ids: resolved,
+  });
+}
+
+async function rpcAddTask(
+  title: string,
+  description: string,
+  assigneeIds: string[],
+  attachments: TaskAttachment[],
+  multiple: boolean,
+) {
+  const resolved = assigneeIds.filter(Boolean);
+  const base = {
+    p_title: title,
+    p_description: description,
+    p_attachments: attachments,
+  };
+
+  if (!multiple || resolved.length <= 1) {
+    const single = await supabase.rpc("add_task", {
+      ...base,
+      p_assignee_id: resolved[0] ?? null,
+    });
+    if (!single.error) return single;
+
+    const message = formatDbError(single.error);
+    if (!isMissingRpc(message) && !/p_attachments|attachments/i.test(message)) {
+      return single;
+    }
+
+    return supabase.rpc("add_task", {
+      p_title: title,
+      p_description: description,
+      p_assignee_id: resolved[0] ?? null,
+    });
+  }
+
+  const multi = await supabase.rpc("add_task", {
+    ...base,
+    p_assignee_ids: resolved,
+  });
+  if (!multi.error) return multi;
+
+  const message = formatDbError(multi.error);
+  if (!isMissingRpc(message) && !/p_attachments|attachments/i.test(message)) {
+    return multi;
+  }
+
+  return supabase.rpc("add_task", {
+    p_title: title,
+    p_description: description,
+    p_assignee_id: resolved[0] ?? null,
+  });
+}
+
+/** Prefer live roster emails for the same people so assign_task validates. */
+function resolveAssigneesForDb(
+  assigneeIds: string[],
   livePeople: Person[],
   roster: Person[],
-): string | null {
-  if (!assigneeId) return null;
-  if (livePeople.some((person) => person.id === assigneeId)) return assigneeId;
+): string[] {
+  const resolved: string[] = [];
+  const seen = new Set<string>();
 
-  const named =
-    roster.find((person) => person.id === assigneeId) ??
-    seedPeople.find((person) => person.id === assigneeId);
-  if (!named) return assigneeId;
+  for (const assigneeId of assigneeIds) {
+    let next = assigneeId;
+    if (!livePeople.some((person) => person.id === assigneeId)) {
+      const named =
+        roster.find((person) => person.id === assigneeId) ??
+        seedPeople.find((person) => person.id === assigneeId);
+      if (named) {
+        const nameKey = named.name.trim().toLowerCase();
+        const liveMatch = livePeople.find(
+          (person) => person.name.trim().toLowerCase() === nameKey,
+        );
+        next = liveMatch?.id ?? named.id;
+      }
+    }
+    if (!seen.has(next)) {
+      seen.add(next);
+      resolved.push(next);
+    }
+  }
 
-  const nameKey = named.name.trim().toLowerCase();
-  const liveMatch = livePeople.find(
-    (person) => person.name.trim().toLowerCase() === nameKey,
-  );
-  return liveMatch?.id ?? named.id;
+  return resolved;
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -299,10 +391,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         resetLocalUser();
       },
-      addTask: async ({ title, description, assigneeId, links = [], files = [] }) => {
+      addTask: async ({
+        title,
+        description,
+        assigneeIds,
+        multiplePeople,
+        links = [],
+        files = [],
+      }) => {
         try {
-          const resolvedAssignee = resolveAssigneeForDb(
-            assigneeId,
+          const resolvedAssignees = resolveAssigneesForDb(
+            assigneeIds,
             people,
             assignableRoster,
           );
@@ -320,16 +419,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
             url: link.url,
           }));
 
-          const { data, error } = await supabase.rpc("add_task", {
-            p_title: title,
-            p_description: description,
-            p_assignee_id: resolvedAssignee,
-            p_attachments: linkAttachments,
-          });
+          const { data, error } = await rpcAddTask(
+            title,
+            description,
+            resolvedAssignees,
+            linkAttachments,
+            multiplePeople && resolvedAssignees.length > 1,
+          );
           if (error) {
             const message = formatDbError(error);
             if (/could not find the function|p_attachments|attachments/i.test(message)) {
               return "Attachments are not enabled yet. Run supabase/migrate_task_attachments.sql in the Supabase SQL Editor.";
+            }
+            if (isMissingRpc(message)) {
+              return "Assign is not set up yet. Run supabase/migrate_multi_assignees.sql in the Supabase SQL Editor.";
             }
             return message;
           }
@@ -419,59 +522,75 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return formatDbError(error);
         }
       },
-      assignTask: async (taskId, assigneeId) => {
+      assignTask: async (taskId, assigneeIds, multiplePeople) => {
         try {
-          const resolvedAssignee = resolveAssigneeForDb(
-            assigneeId,
+          const resolvedAssignees = resolveAssigneesForDb(
+            assigneeIds,
             people,
             assignableRoster,
           );
-          const previous = tasks.find((task) => task.id === taskId);
 
-          // Optimistic UI so the leader dropdown updates immediately.
-          setTasks((current) =>
-            current.map((task) =>
-              task.id === taskId
-                ? {
-                    ...task,
-                    assigneeId: resolvedAssignee,
-                    assignedById: resolvedAssignee
-                      ? (session?.userId ?? task.assignedById)
-                      : null,
-                    status: resolvedAssignee
-                      ? task.status === "unclaimed"
-                        ? "just_started"
-                        : task.status
-                      : "unclaimed",
-                    updatedAt: new Date().toISOString(),
-                  }
-                : task,
-            ),
+          const { data, error } = await rpcAssignTask(
+            taskId,
+            resolvedAssignees,
+            multiplePeople && resolvedAssignees.length > 1,
           );
-
-          const { data, error } = await supabase.rpc("assign_task", {
-            p_task_id: taskId,
-            p_assignee_id: resolvedAssignee,
-          });
           if (error) {
-            if (previous) {
-              setTasks((current) =>
-                current.map((task) => (task.id === taskId ? previous : task)),
-              );
+            const message = formatDbError(error);
+            if (isMissingRpc(message)) {
+              return "Assign is not set up yet. Run supabase/migrate_multi_assignees.sql in the Supabase SQL Editor.";
             }
-            return formatDbError(error);
+            return message;
           }
+
           if (data) {
             const mapped = mapTask(data as TaskRow);
             setTasks((current) =>
               current.map((task) => (task.id === mapped.id ? mapped : task)),
             );
-          } else {
-            try {
-              await loadTasks();
-            } catch (loadError) {
-              console.error(loadError);
+          }
+
+          try {
+            await loadTasks();
+          } catch (loadError) {
+            console.error(loadError);
+          }
+          return null;
+        } catch (error) {
+          return formatDbError(error);
+        }
+      },
+      setPartners: async (taskId, assigneeIds) => {
+        try {
+          const resolved = resolveAssigneesForDb(
+            assigneeIds,
+            people,
+            assignableRoster,
+          );
+
+          const { data, error } = await supabase.rpc("set_task_partners", {
+            p_task_id: taskId,
+            p_assignee_ids: resolved,
+          });
+          if (error) {
+            const message = formatDbError(error);
+            if (isMissingRpc(message)) {
+              return "Partner editing is not enabled yet. Run supabase/migrate_add_task_partners.sql in the Supabase SQL Editor.";
             }
+            return message;
+          }
+
+          if (data) {
+            const mapped = mapTask(data as TaskRow);
+            setTasks((current) =>
+              current.map((task) => (task.id === mapped.id ? mapped : task)),
+            );
+          }
+
+          try {
+            await loadTasks();
+          } catch (loadError) {
+            console.error(loadError);
           }
           return null;
         } catch (error) {

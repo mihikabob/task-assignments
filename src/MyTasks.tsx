@@ -1,10 +1,11 @@
 import { TaskCard } from "./TaskCard";
+import { taskIncludesPerson } from "./lib/taskAssignees";
 import { useApp, useCurrentUser } from "./store";
 
 export default function MyTasks({ onOpenTask }: { onOpenTask: (taskId: string) => void }) {
-  const { tasks } = useApp();
+  const { tasks, personById } = useApp();
   const user = useCurrentUser();
-  const mine = tasks.filter((task) => task.assigneeId === user?.id);
+  const mine = tasks.filter((task) => taskIncludesPerson(task, user, personById));
   const isLeader = user?.role === "leader";
 
   return (

@@ -542,6 +542,147 @@ p {
   color: var(--ink);
 }
 
+.assignee-stack {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.avatar-stack {
+  display: flex;
+  align-items: center;
+}
+
+.avatar-stack > * {
+  margin-left: -8px;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.avatar-stack > *:first-child {
+  margin-left: 0;
+}
+
+.assignee-picker {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fafafa;
+  padding: 10px 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.assignee-picker-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.assignee-group-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #8a6a00;
+  margin-bottom: 6px;
+}
+
+.assignee-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px 10px;
+}
+
+.assignee-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.assignee-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #d6a800;
+}
+
+.assign-panel {
+  margin-top: 12px;
+  padding-top: 4px;
+}
+
+.assign-inline {
+  display: grid;
+  gap: 8px;
+  min-width: min(280px, 100%);
+}
+
+.assign-block {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fafafa;
+  display: grid;
+  gap: 8px;
+}
+
+.assign-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assign-block .select,
+.assign-block .assign-multi-select {
+  width: 100%;
+}
+
+.partner-confirm {
+  display: grid;
+  gap: 10px;
+}
+
+.partner-confirm .muted {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.partner-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-status-seg {
+  margin-top: 12px;
+}
+
+.assign-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.assign-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #d6a800;
+}
+
+.assign-multi-select {
+  min-height: 120px;
+}
+
 .muted {
   color: var(--muted);
   font-weight: 500;

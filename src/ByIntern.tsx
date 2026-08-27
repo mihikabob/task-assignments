@@ -41,8 +41,8 @@ export default function ByIntern({ onOpenTask }: { onOpenTask: (taskId: string) 
         );
         ids.add(intern.id);
 
-        const assigned = tasks.filter(
-          (task) => task.assigneeId && ids.has(task.assigneeId),
+        const assigned = tasks.filter((task) =>
+          task.assigneeIds.some((id) => ids.has(id)),
         );
         return {
           intern,

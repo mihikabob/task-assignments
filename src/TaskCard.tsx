@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Avatar from "./Avatar";
+import { formatAssigneeNames, taskIncludesPerson } from "./lib/taskAssignees";
+import PartnerPicker from "./PartnerPicker";
+import TaskAssignField from "./TaskAssignField";
 import type { Task, TaskStatus } from "./types";
 import { useApp, useCurrentUser } from "./store";
 
@@ -30,49 +33,123 @@ export function TaskCard({
   showDescription?: boolean;
   onOpen?: () => void;
 }) {
-  const { claimTask, assignTask, updateStatus, deleteTask, assignableRoster, personById } =
+  const { claimTask, assignTask, setPartners, updateStatus, deleteTask, assignableRoster, personById } =
     useApp();
   const user = useCurrentUser();
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [assignError, setAssignError] = useState("");
   const [assigning, setAssigning] = useState(false);
+  const [multiplePeople, setMultiplePeople] = useState(task.assigneeIds.length > 1);
+  const [showPartnerPicker, setShowPartnerPicker] = useState(false);
+  const [showAssignPicker, setShowAssignPicker] = useState(false);
+  const [confirmLeaveTask, setConfirmLeaveTask] = useState(false);
+  const [pendingPartnerIds, setPendingPartnerIds] = useState<string[] | null>(null);
 
-  const assignee = personById(task.assigneeId);
-  const assigner = personById(task.assignedById);
-  const isAssignee = user?.id === task.assigneeId;
+  const assignees = useMemo(
+    () =>
+      task.assigneeIds
+        .map((id) => personById(id))
+        .filter((person): person is NonNullable<typeof person> => Boolean(person)),
+    [task.assigneeIds, personById],
+  );
+  const isAssignee = taskIncludesPerson(task, user, personById);
   const canUpdate = Boolean(isAssignee);
-  const canClaim = user?.role === "intern" && !task.assigneeId;
+  const canClaim = user?.role === "intern" && task.assigneeIds.length === 0;
   const isLeader = user?.role === "leader";
   const isComplete = task.status === "complete";
+  const canAddPartners = isAssignee && !isComplete && user?.role === "intern";
   const removeLabel = isComplete ? "Discard" : "Delete";
-  const showAssignedBy =
-    user?.role === "intern" && isAssignee && Boolean(assigner);
 
-  // Keep the select in sync when the task's assignee email differs from the
-  // unique-by-name option value (school vs personal email).
+  const rosterAssigneeIds = useMemo(() => {
+    return task.assigneeIds.map((id) => {
+      if (assignableRoster.some((person) => person.id === id)) return id;
+      const person = personById(id);
+      if (!person) return id;
+      const match = assignableRoster.find(
+        (entry) => entry.name.trim().toLowerCase() === person.name.trim().toLowerCase(),
+      );
+      return match?.id ?? id;
+    });
+  }, [task.assigneeIds, assignableRoster, personById]);
+
   const assignSelectValue = useMemo(() => {
-    if (!task.assigneeId) return "";
-    if (assignableRoster.some((person) => person.id === task.assigneeId)) {
-      return task.assigneeId;
-    }
-    if (!assignee) return task.assigneeId;
+    if (task.assigneeIds.length !== 1) return "";
+    const id = task.assigneeIds[0];
+    if (assignableRoster.some((person) => person.id === id)) return id;
+    const person = personById(id);
+    if (!person) return id;
     const match = assignableRoster.find(
-      (person) => person.name.trim().toLowerCase() === assignee.name.trim().toLowerCase(),
+      (entry) => entry.name.trim().toLowerCase() === person.name.trim().toLowerCase(),
     );
-    return match?.id ?? task.assigneeId;
-  }, [task.assigneeId, assignableRoster, assignee]);
+    return match?.id ?? id;
+  }, [task.assigneeIds, assignableRoster, personById]);
 
   useEffect(() => {
     setAssignError("");
-  }, [task.id, task.assigneeId]);
+    if (task.assigneeIds.length > 1) setMultiplePeople(true);
+  }, [task.id, task.assigneeIds.length]);
 
-  async function handleAssign(nextId: string) {
+  useEffect(() => {
+    if (!showPartnerPicker) {
+      setConfirmLeaveTask(false);
+      setPendingPartnerIds(null);
+    }
+  }, [showPartnerPicker]);
+
+  async function runAssign(ids: string[], multi: boolean) {
     setAssigning(true);
     setAssignError("");
-    const message = await assignTask(task.id, nextId || null);
+    const message = await assignTask(task.id, ids, multi);
     if (message) setAssignError(message);
     setAssigning(false);
   }
+
+  const selfRosterId = useMemo(() => {
+    if (!user) return "";
+    if (assignableRoster.some((person) => person.id === user.id)) return user.id;
+    const match = assignableRoster.find(
+      (entry) => entry.name.trim().toLowerCase() === user.name.trim().toLowerCase(),
+    );
+    return match?.id ?? user.id;
+  }, [user, assignableRoster]);
+
+  async function applyPartnersChange(ids: string[]) {
+    setAssigning(true);
+    setAssignError("");
+    const message = await setPartners(task.id, ids);
+    if (message) setAssignError(message);
+    setAssigning(false);
+  }
+
+  function handlePartnersChange(ids: string[]) {
+    const removingSelf =
+      selfRosterId &&
+      rosterAssigneeIds.includes(selfRosterId) &&
+      !ids.includes(selfRosterId);
+
+    if (removingSelf) {
+      setPendingPartnerIds(ids);
+      setConfirmLeaveTask(true);
+      return;
+    }
+
+    void applyPartnersChange(ids);
+  }
+
+  function cancelLeaveTask() {
+    setConfirmLeaveTask(false);
+    setPendingPartnerIds(null);
+  }
+
+  async function confirmLeaveTaskYes() {
+    if (!pendingPartnerIds) return;
+    setConfirmLeaveTask(false);
+    const ids = pendingPartnerIds;
+    setPendingPartnerIds(null);
+    await applyPartnersChange(ids);
+  }
+
+  const assigneeLabel = formatAssigneeNames(task.assigneeIds, personById);
 
   return (
     <article className="task-card">
@@ -86,7 +163,6 @@ export function TaskCard({
             ) : (
               task.title
             )}
-            {showAssignedBy ? ` - assigned by ${assigner?.name}` : ""}
           </h3>
         </div>
         <StatusBadge status={task.status} />
@@ -129,10 +205,14 @@ export function TaskCard({
       )}
 
       <div className="task-meta">
-        {assignee ? (
-          <div className="assignee">
-            <Avatar person={assignee} size="sm" />
-            {assignee.name}
+        {assignees.length > 0 ? (
+          <div className="assignee-stack" title={assigneeLabel}>
+            <div className="avatar-stack">
+              {assignees.slice(0, 3).map((person) => (
+                <Avatar key={person.id} person={person} size="sm" />
+              ))}
+            </div>
+            <span>{assigneeLabel}</span>
           </div>
         ) : (
           <span className="muted">Unclaimed</span>
@@ -149,39 +229,26 @@ export function TaskCard({
           </button>
         )}
 
-        {showAssign && user?.role === "leader" && (
-          <select
-            className="select"
-            value={assignSelectValue}
+        {canAddPartners && (
+          <button
+            className="btn ghost sm"
+            type="button"
             disabled={assigning}
-            onChange={(event) => {
-              void handleAssign(event.target.value);
-            }}
+            onClick={() => setShowPartnerPicker((open) => !open)}
           >
-            <option value="">Unassigned</option>
-            {assignableRoster.map((person) => (
-              <option key={person.id} value={person.id}>
-                Assign to {person.name}
-                {person.role === "leader" ? " (leader)" : ""}
-              </option>
-            ))}
-          </select>
+            {showPartnerPicker ? "Hide partners" : "Add partners"}
+          </button>
         )}
 
-        {canUpdate && task.assigneeId && (
-          <div className="seg" aria-label="Update progress">
-            {(["just_started", "in_progress", "complete"] as TaskStatus[]).map((status) => (
-              <button
-                key={status}
-                className={task.status === status ? "active" : ""}
-                onClick={() => {
-                  void updateStatus(task.id, status);
-                }}
-              >
-                {STATUS_LABEL[status]}
-              </button>
-            ))}
-          </div>
+        {showAssign && isLeader && (
+          <button
+            className="btn ghost sm"
+            type="button"
+            disabled={assigning}
+            onClick={() => setShowAssignPicker((open) => !open)}
+          >
+            {showAssignPicker ? "Hide assignees" : "Assign"}
+          </button>
         )}
 
         {isLeader && (
@@ -212,7 +279,106 @@ export function TaskCard({
         )}
       </div>
 
-      {assignError && <p className="error">{assignError}</p>}
+      {showAssign && isLeader && showAssignPicker && (
+        <div className="assign-block">
+          <div className="assign-block-head">
+            <p className="attach-heading">Assign</p>
+            <label className="assign-toggle">
+              <input
+                type="checkbox"
+                checked={multiplePeople}
+                disabled={assigning}
+                onChange={(event) => {
+                  const next = event.target.checked;
+                  setMultiplePeople(next);
+                  if (!next && task.assigneeIds.length > 1) {
+                    void runAssign(task.assigneeIds.slice(0, 1), false);
+                  }
+                }}
+              />
+              <span>Multiple people</span>
+            </label>
+          </div>
+          {multiplePeople && (
+            <p className="muted assign-hint">Check everyone who should work on this task.</p>
+          )}
+          <TaskAssignField
+            people={assignableRoster}
+            multiple={multiplePeople}
+            singleValue={assignSelectValue}
+            multiValues={rosterAssigneeIds}
+            disabled={assigning}
+            variant="inline"
+            onSingleChange={(nextId) => {
+              void runAssign(nextId ? [nextId] : [], false);
+            }}
+            onMultiChange={(ids) => {
+              void runAssign(ids, true);
+            }}
+          />
+        </div>
+      )}
+
+      {canAddPartners && showPartnerPicker && (
+        <div className="assign-block partners-block">
+          <p className="attach-heading">Partners</p>
+          {confirmLeaveTask ? (
+            <div className="partner-confirm">
+              <p className="muted">Are you sure you want to remove yourself from this task?</p>
+              <div className="partner-confirm-actions">
+                <button
+                  className="btn ghost sm"
+                  type="button"
+                  disabled={assigning}
+                  onClick={cancelLeaveTask}
+                >
+                  No
+                </button>
+                <button
+                  className="btn sm"
+                  type="button"
+                  disabled={assigning}
+                  onClick={() => {
+                    void confirmLeaveTaskYes();
+                  }}
+                >
+                  Yes
+                </button>
+              </div>
+            </div>
+          ) : (
+            <PartnerPicker
+              people={assignableRoster}
+              selectedIds={rosterAssigneeIds}
+              selfId={selfRosterId}
+              disabled={assigning}
+              onChange={handlePartnersChange}
+            />
+          )}
+        </div>
+      )}
+
+      {canUpdate && task.assigneeIds.length > 0 && (
+        <div className="seg task-status-seg" aria-label="Update progress">
+          {(["just_started", "in_progress", "complete"] as TaskStatus[]).map((status) => (
+            <button
+              key={status}
+              className={task.status === status ? "active" : ""}
+              onClick={() => {
+                void updateStatus(task.id, status);
+              }}
+            >
+              {STATUS_LABEL[status]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {assignError && (
+        <p className="error" style={{ marginTop: 10 }}>
+          {assignError}
+        </p>
+      )}
     </article>
   );
 }

@@ -28,18 +28,20 @@ export default function AllTasks({
     const q = query.trim().toLowerCase();
     return tasks
       .filter((task) => {
-        const assignee = personById(task.assigneeId)?.name.toLowerCase() ?? "";
+        const assigneeNames = task.assigneeIds
+          .map((id) => personById(id)?.name.toLowerCase() ?? "")
+          .join(" ");
         const matchesQuery =
           !q ||
           task.title.toLowerCase().includes(q) ||
           task.description.toLowerCase().includes(q) ||
-          assignee.includes(q);
+          assigneeNames.includes(q);
         const matchesFilter = filter === "all" || task.status === filter;
         return matchesQuery && matchesFilter;
       })
       .sort((a, b) => {
         const rank = (task: (typeof tasks)[number]) =>
-          task.status === "unclaimed" || !task.assigneeId ? 0 : 1;
+          task.status === "unclaimed" || task.assigneeIds.length === 0 ? 0 : 1;
         const byClaim = rank(a) - rank(b);
         if (byClaim !== 0) return byClaim;
         return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();

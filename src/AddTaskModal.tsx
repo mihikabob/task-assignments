@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
+import TaskAssignField from "./TaskAssignField";
 import {
   ACCEPTED_FILE_TYPES,
   formatFileSize,
@@ -15,16 +16,15 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [multiplePeople, setMultiplePeople] = useState(false);
   const [assigneeId, setAssigneeId] = useState("");
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLabel, setLinkLabel] = useState("");
   const [links, setLinks] = useState<PendingLink[]>([]);
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-
-  const interns = assignableRoster.filter((person) => person.role === "intern");
-  const leaders = assignableRoster.filter((person) => person.role === "leader");
 
   function addLink() {
     const url = normalizeLinkUrl(linkUrl);
@@ -66,10 +66,17 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError("");
     try {
+      const selectedIds = multiplePeople
+        ? assigneeIds
+        : assigneeId
+          ? [assigneeId]
+          : [];
+
       const message = await addTask({
         title,
         description,
-        assigneeId: assigneeId || null,
+        assigneeIds: selectedIds,
+        multiplePeople,
         links: links.map(({ label, url }) => ({ label, url })),
         files: files.map((item) => item.file),
       });
@@ -119,34 +126,44 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
               {description.trim().length} / 8000
             </span>
           </label>
-          <label>
-            Assign now (optional)
-            <select
-              className="field"
-              value={assigneeId}
-              onChange={(event) => setAssigneeId(event.target.value)}
-            >
-              <option value="">Leave open for anyone to claim</option>
-              {interns.length > 0 && (
-                <optgroup label="Interns">
-                  {interns.map((person) => (
-                    <option key={person.id} value={person.id}>
-                      {person.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {leaders.length > 0 && (
-                <optgroup label="Leaders">
-                  {leaders.map((person) => (
-                    <option key={person.id} value={person.id}>
-                      {person.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-          </label>
+
+          <div className="assign-block">
+            <div className="assign-block-head">
+              <p className="attach-heading">Assign now (optional)</p>
+              <label className="assign-toggle">
+                <input
+                  type="checkbox"
+                  checked={multiplePeople}
+                  disabled={saving}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setMultiplePeople(next);
+                    if (next) {
+                      setAssigneeIds(assigneeId ? [assigneeId] : []);
+                    } else {
+                      setAssigneeId(assigneeIds[0] ?? "");
+                      setAssigneeIds([]);
+                    }
+                  }}
+                />
+                <span>Multiple people</span>
+              </label>
+            </div>
+            {multiplePeople ? (
+              <p className="muted assign-hint">Check everyone who should work on this task.</p>
+            ) : (
+              <p className="muted attach-hint">Pick one person, or leave open for anyone to claim.</p>
+            )}
+            <TaskAssignField
+              people={assignableRoster}
+              multiple={multiplePeople}
+              singleValue={assigneeId}
+              multiValues={assigneeIds}
+              disabled={saving}
+              onSingleChange={setAssigneeId}
+              onMultiChange={setAssigneeIds}
+            />
+          </div>
 
           <div className="attach-section">
             <p className="attach-heading">Attachments</p>

@@ -46,6 +46,7 @@ create table if not exists public.tasks (
   description text not null default '',
   status text not null check (status in ('unclaimed', 'just_started', 'in_progress', 'complete')),
   assignee_id text references public.roster (email),
+  assignee_ids jsonb not null default '[]'::jsonb,
   assigned_by_id text references public.roster (email),
   created_by text not null references public.roster (email),
   attachments jsonb not null default '[]'::jsonb,
@@ -54,7 +55,7 @@ create table if not exists public.tasks (
 );
 
 create index if not exists tasks_status_idx on public.tasks (status);
-create index if not exists tasks_assignee_idx on public.tasks (assignee_id);
+create index if not exists tasks_assignee_ids_gin on public.tasks using gin (assignee_ids);
 
 alter table public.roster enable row level security;
 alter table public.profiles enable row level security;
@@ -132,13 +133,92 @@ begin
 end;
 $$;
 
--- Drop older add_task signatures so only the attachments-aware version remains.
+-- Drop older add_task / assign_task signatures.
 drop function if exists public.add_task(text, text, text);
+drop function if exists public.add_task(text, text, text, jsonb);
+drop function if exists public.add_task(text, text, text[], jsonb);
+drop function if exists public.add_task(text, text, jsonb, jsonb);
+drop function if exists public.assign_task(uuid, text);
+drop function if exists public.assign_task(uuid, text[]);
+drop function if exists public.assign_task(uuid, jsonb);
+
+create or replace function public.assign_task(
+  p_task_id uuid,
+  p_assignee_id text default null,
+  p_assignee_ids jsonb default null
+)
+returns public.tasks
+language plpgsql
+security definer
+set search_path = public
+set row_security = off
+as $$
+declare
+  me public.profiles%rowtype;
+  task_row public.tasks%rowtype;
+  current public.tasks%rowtype;
+  safe_assignees jsonb;
+  first_assignee text;
+begin
+  select * into me from public.current_profile();
+  if me.role != 'leader' then
+    raise exception 'Leaders only';
+  end if;
+
+  select * into current from public.tasks where id = p_task_id;
+  if not found then
+    raise exception 'Task not found';
+  end if;
+
+  if p_assignee_ids is not null and jsonb_typeof(p_assignee_ids) = 'array' then
+    safe_assignees := (
+      select coalesce(jsonb_agg(to_jsonb(trim(value))), '[]'::jsonb)
+      from jsonb_array_elements_text(p_assignee_ids) as t(value)
+      where nullif(trim(value), '') is not null
+    );
+  elsif p_assignee_id is not null and trim(p_assignee_id) <> '' then
+    safe_assignees := jsonb_build_array(trim(p_assignee_id));
+  else
+    safe_assignees := '[]'::jsonb;
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_array_elements_text(safe_assignees) as e(email)
+    where not exists (select 1 from public.roster r where r.email = e.email)
+  ) then
+    raise exception 'Invalid assignee';
+  end if;
+
+  first_assignee := nullif(safe_assignees ->> 0, '');
+
+  update public.tasks
+  set assignee_id = first_assignee,
+      assignee_ids = safe_assignees,
+      assigned_by_id = case when jsonb_array_length(safe_assignees) = 0 then null else me.email end,
+      status = case
+        when jsonb_array_length(safe_assignees) = 0 then 'unclaimed'
+        when current.status = 'unclaimed' then 'just_started'
+        else current.status
+      end,
+      updated_at = now()
+  where id = p_task_id
+  returning * into task_row;
+
+  return task_row;
+end;
+$$;
+
+drop function if exists public.add_task(text, text, text);
+drop function if exists public.add_task(text, text, text, jsonb);
+drop function if exists public.add_task(text, text, text[], jsonb);
+drop function if exists public.add_task(text, text, jsonb, jsonb);
 
 create or replace function public.add_task(
   p_title text,
   p_description text,
   p_assignee_id text default null,
+  p_assignee_ids jsonb default null,
   p_attachments jsonb default '[]'::jsonb
 )
 returns public.tasks
@@ -151,6 +231,8 @@ declare
   me public.profiles%rowtype;
   task_row public.tasks%rowtype;
   safe_attachments jsonb;
+  safe_assignees jsonb;
+  first_assignee text;
 begin
   select * into me from public.current_profile();
   if me.id is null then
@@ -164,8 +246,22 @@ begin
     raise exception 'Title is required';
   end if;
 
-  if p_assignee_id is not null and not exists (
-    select 1 from public.roster where email = p_assignee_id
+  if p_assignee_ids is not null and jsonb_typeof(p_assignee_ids) = 'array' then
+    safe_assignees := (
+      select coalesce(jsonb_agg(to_jsonb(trim(value))), '[]'::jsonb)
+      from jsonb_array_elements_text(p_assignee_ids) as t(value)
+      where nullif(trim(value), '') is not null
+    );
+  elsif p_assignee_id is not null and trim(p_assignee_id) <> '' then
+    safe_assignees := jsonb_build_array(trim(p_assignee_id));
+  else
+    safe_assignees := '[]'::jsonb;
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_array_elements_text(safe_assignees) as e(email)
+    where not exists (select 1 from public.roster r where r.email = e.email)
   ) then
     raise exception 'Invalid assignee';
   end if;
@@ -176,11 +272,14 @@ begin
     safe_attachments := p_attachments;
   end if;
 
+  first_assignee := nullif(safe_assignees ->> 0, '');
+
   insert into public.tasks (
     title,
     description,
     status,
     assignee_id,
+    assignee_ids,
     assigned_by_id,
     created_by,
     attachments
@@ -188,13 +287,86 @@ begin
   values (
     trim(p_title),
     trim(coalesce(p_description, '')),
-    case when p_assignee_id is null then 'unclaimed' else 'just_started' end,
-    p_assignee_id,
-    case when p_assignee_id is null then null else me.email end,
+    case when jsonb_array_length(safe_assignees) = 0 then 'unclaimed' else 'just_started' end,
+    first_assignee,
+    safe_assignees,
+    case when jsonb_array_length(safe_assignees) = 0 then null else me.email end,
     me.email,
     safe_attachments
   )
   returning * into task_row;
+
+  return task_row;
+end;
+$$;
+
+create or replace function public.claim_task(p_task_id uuid)
+returns public.tasks
+language plpgsql
+security definer
+set search_path = public
+set row_security = off
+as $$
+declare
+  me public.profiles%rowtype;
+  task_row public.tasks%rowtype;
+begin
+  select * into me from public.current_profile();
+  if me.role != 'intern' then
+    raise exception 'Interns only';
+  end if;
+
+  update public.tasks
+  set assignee_id = me.email,
+      assignee_ids = jsonb_build_array(me.email),
+      assigned_by_id = null,
+      status = 'just_started',
+      updated_at = now()
+  where id = p_task_id
+    and assignee_id is null
+    and jsonb_array_length(coalesce(assignee_ids, '[]'::jsonb)) = 0
+  returning * into task_row;
+
+  if not found then
+    raise exception 'Task is not available to claim';
+  end if;
+
+  return task_row;
+end;
+$$;
+
+create or replace function public.update_task_status(
+  p_task_id uuid,
+  p_status text
+)
+returns public.tasks
+language plpgsql
+security definer
+set search_path = public
+set row_security = off
+as $$
+declare
+  me public.profiles%rowtype;
+  task_row public.tasks%rowtype;
+begin
+  select * into me from public.current_profile();
+  if p_status not in ('just_started', 'in_progress', 'complete') then
+    raise exception 'Invalid status';
+  end if;
+
+  update public.tasks
+  set status = p_status,
+      updated_at = now()
+  where id = p_task_id
+    and (
+      assignee_id = me.email
+      or assignee_ids @> to_jsonb(me.email)
+    )
+  returning * into task_row;
+
+  if not found then
+    raise exception 'You can only update your own assigned tasks';
+  end if;
 
   return task_row;
 end;
@@ -240,42 +412,9 @@ begin
 end;
 $$;
 
-create or replace function public.claim_task(p_task_id uuid)
-returns public.tasks
-language plpgsql
-security definer
-set search_path = public
-set row_security = off
-as $$
-declare
-  me public.profiles%rowtype;
-  task_row public.tasks%rowtype;
-begin
-  select * into me from public.current_profile();
-  if me.role != 'intern' then
-    raise exception 'Interns only';
-  end if;
-
-  update public.tasks
-  set assignee_id = me.email,
-      assigned_by_id = null,
-      status = 'just_started',
-      updated_at = now()
-  where id = p_task_id
-    and assignee_id is null
-  returning * into task_row;
-
-  if not found then
-    raise exception 'Task is not available to claim';
-  end if;
-
-  return task_row;
-end;
-$$;
-
-create or replace function public.assign_task(
+create or replace function public.add_task_partners(
   p_task_id uuid,
-  p_assignee_id text default null
+  p_partner_ids jsonb default '[]'::jsonb
 )
 returns public.tasks
 language plpgsql
@@ -287,31 +426,66 @@ declare
   me public.profiles%rowtype;
   task_row public.tasks%rowtype;
   current public.tasks%rowtype;
+  current_assignees jsonb;
+  new_partners jsonb;
+  merged jsonb;
+  first_assignee text;
 begin
   select * into me from public.current_profile();
-  if me.role != 'leader' then
-    raise exception 'Leaders only';
-  end if;
 
   select * into current from public.tasks where id = p_task_id;
   if not found then
     raise exception 'Task not found';
   end if;
 
-  if p_assignee_id is not null and not exists (
-    select 1 from public.roster where email = p_assignee_id
+  if not (
+    me.email = current.assignee_id
+    or coalesce(current.assignee_ids, '[]'::jsonb) @> to_jsonb(me.email)
   ) then
-    raise exception 'Invalid assignee';
+    raise exception 'Only people on this task can add partners';
   end if;
 
+  current_assignees := coalesce(current.assignee_ids, '[]'::jsonb);
+  if jsonb_array_length(current_assignees) = 0 and current.assignee_id is not null then
+    current_assignees := jsonb_build_array(current.assignee_id);
+  end if;
+
+  if p_partner_ids is null or jsonb_typeof(p_partner_ids) is distinct from 'array' then
+    new_partners := '[]'::jsonb;
+  else
+    new_partners := (
+      select coalesce(jsonb_agg(to_jsonb(trim(value))), '[]'::jsonb)
+      from jsonb_array_elements_text(p_partner_ids) as t(value)
+      where nullif(trim(value), '') is not null
+    );
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_array_elements_text(new_partners) as e(email)
+    where not exists (select 1 from public.roster r where r.email = e.email)
+  ) then
+    raise exception 'Invalid partner';
+  end if;
+
+  merged := (
+    select coalesce(jsonb_agg(to_jsonb(email)), '[]'::jsonb)
+    from (
+      select distinct trim(value) as email
+      from (
+        select jsonb_array_elements_text(current_assignees) as value
+        union all
+        select jsonb_array_elements_text(new_partners) as value
+      ) as emails
+      where nullif(trim(value), '') is not null
+    ) as unique_emails
+  );
+
+  first_assignee := nullif(merged ->> 0, '');
+
   update public.tasks
-  set assignee_id = p_assignee_id,
-      assigned_by_id = case when p_assignee_id is null then null else me.email end,
-      status = case
-        when p_assignee_id is null then 'unclaimed'
-        when current.status = 'unclaimed' then 'just_started'
-        else current.status
-      end,
+  set assignee_id = first_assignee,
+      assignee_ids = merged,
       updated_at = now()
   where id = p_task_id
   returning * into task_row;
@@ -320,9 +494,9 @@ begin
 end;
 $$;
 
-create or replace function public.update_task_status(
+create or replace function public.set_task_partners(
   p_task_id uuid,
-  p_status text
+  p_assignee_ids jsonb default '[]'::jsonb
 )
 returns public.tasks
 language plpgsql
@@ -333,22 +507,54 @@ as $$
 declare
   me public.profiles%rowtype;
   task_row public.tasks%rowtype;
+  current public.tasks%rowtype;
+  next_assignees jsonb;
+  first_assignee text;
 begin
   select * into me from public.current_profile();
-  if p_status not in ('just_started', 'in_progress', 'complete') then
-    raise exception 'Invalid status';
+
+  select * into current from public.tasks where id = p_task_id;
+  if not found then
+    raise exception 'Task not found';
+  end if;
+
+  if not (
+    me.email = current.assignee_id
+    or coalesce(current.assignee_ids, '[]'::jsonb) @> to_jsonb(me.email)
+  ) then
+    raise exception 'Only people on this task can edit partners';
+  end if;
+
+  if p_assignee_ids is null or jsonb_typeof(p_assignee_ids) is distinct from 'array' then
+    next_assignees := '[]'::jsonb;
+  else
+    next_assignees := (
+      select coalesce(jsonb_agg(to_jsonb(trim(value))), '[]'::jsonb)
+      from jsonb_array_elements_text(p_assignee_ids) as t(value)
+      where nullif(trim(value), '') is not null
+    );
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_array_elements_text(next_assignees) as e(email)
+    where not exists (select 1 from public.roster r where r.email = e.email)
+  ) then
+    raise exception 'Invalid partner';
+  end if;
+
+  if jsonb_array_length(next_assignees) = 0 then
+    first_assignee := null;
+  else
+    first_assignee := nullif(next_assignees ->> 0, '');
   end if;
 
   update public.tasks
-  set status = p_status,
+  set assignee_id = first_assignee,
+      assignee_ids = next_assignees,
       updated_at = now()
   where id = p_task_id
-    and assignee_id = me.email
   returning * into task_row;
-
-  if not found then
-    raise exception 'You can only update your own assigned tasks';
-  end if;
 
   return task_row;
 end;
@@ -435,10 +641,12 @@ grant select on public.profiles to authenticated;
 grant select on public.tasks to authenticated;
 grant execute on function public.sync_profile() to authenticated;
 grant execute on function public.resolve_password_login(text, text) to anon, authenticated;
-grant execute on function public.add_task(text, text, text, jsonb) to authenticated;
+grant execute on function public.add_task(text, text, text, jsonb, jsonb) to authenticated;
 grant execute on function public.set_task_attachments(uuid, jsonb) to authenticated;
 grant execute on function public.claim_task(uuid) to authenticated;
-grant execute on function public.assign_task(uuid, text) to authenticated;
+grant execute on function public.assign_task(uuid, text, jsonb) to authenticated;
+grant execute on function public.add_task_partners(uuid, jsonb) to authenticated;
+grant execute on function public.set_task_partners(uuid, jsonb) to authenticated;
 grant execute on function public.update_task_status(uuid, text) to authenticated;
 grant execute on function public.delete_task(uuid) to authenticated;
 grant execute on function public.discard_completed() to authenticated;
