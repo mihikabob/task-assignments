@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
+import SubtaskEditor from "./SubtaskEditor";
 import TaskAssignField from "./TaskAssignField";
 import {
   ACCEPTED_FILE_TYPES,
@@ -6,6 +7,8 @@ import {
   MAX_ATTACHMENT_BYTES,
   normalizeLinkUrl,
 } from "./lib/attachments";
+import type { EditableSubtask } from "./lib/subtasks";
+import { toSubtasksPayload } from "./lib/subtasks";
 import { useApp } from "./store";
 
 type PendingLink = { id: string; label: string; url: string };
@@ -19,6 +22,7 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
   const [multiplePeople, setMultiplePeople] = useState(false);
   const [assigneeId, setAssigneeId] = useState("");
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [subtasks, setSubtasks] = useState<EditableSubtask[]>([]);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLabel, setLinkLabel] = useState("");
   const [links, setLinks] = useState<PendingLink[]>([]);
@@ -79,6 +83,7 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
         multiplePeople,
         links: links.map(({ label, url }) => ({ label, url })),
         files: files.map((item) => item.file),
+        subtasks: toSubtasksPayload(subtasks),
       });
       if (message) {
         setError(message);
@@ -126,6 +131,8 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
               {description.trim().length} / 8000
             </span>
           </label>
+
+          <SubtaskEditor items={subtasks} onChange={setSubtasks} disabled={saving} />
 
           <div className="assign-block">
             <div className="assign-block-head">

@@ -50,6 +50,7 @@ create table if not exists public.tasks (
   assigned_by_id text references public.roster (email),
   created_by text not null references public.roster (email),
   attachments jsonb not null default '[]'::jsonb,
+  subtasks jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -214,12 +215,60 @@ drop function if exists public.add_task(text, text, text, jsonb);
 drop function if exists public.add_task(text, text, text[], jsonb);
 drop function if exists public.add_task(text, text, jsonb, jsonb);
 
+create or replace function public.normalize_subtasks(p_subtasks jsonb)
+returns jsonb
+language plpgsql
+immutable
+as $$
+declare
+  result jsonb := '[]'::jsonb;
+  item jsonb;
+  item_id text;
+  item_title text;
+  item_done boolean;
+begin
+  if p_subtasks is null or jsonb_typeof(p_subtasks) is distinct from 'array' then
+    return '[]'::jsonb;
+  end if;
+
+  for item in select value from jsonb_array_elements(p_subtasks)
+  loop
+    if jsonb_typeof(item) is distinct from 'object' then
+      continue;
+    end if;
+
+    item_title := nullif(trim(coalesce(item ->> 'title', '')), '');
+    if item_title is null then
+      continue;
+    end if;
+
+    item_id := nullif(trim(coalesce(item ->> 'id', '')), '');
+    if item_id is null then
+      item_id := gen_random_uuid()::text;
+    end if;
+
+    item_done := coalesce((item ->> 'done')::boolean, false);
+
+    result := result || jsonb_build_array(
+      jsonb_build_object(
+        'id', item_id,
+        'title', item_title,
+        'done', item_done
+      )
+    );
+  end loop;
+
+  return result;
+end;
+$$;
+
 create or replace function public.add_task(
   p_title text,
   p_description text,
   p_assignee_id text default null,
   p_assignee_ids jsonb default null,
-  p_attachments jsonb default '[]'::jsonb
+  p_attachments jsonb default '[]'::jsonb,
+  p_subtasks jsonb default '[]'::jsonb
 )
 returns public.tasks
 language plpgsql
@@ -232,6 +281,7 @@ declare
   task_row public.tasks%rowtype;
   safe_attachments jsonb;
   safe_assignees jsonb;
+  safe_subtasks jsonb;
   first_assignee text;
 begin
   select * into me from public.current_profile();
@@ -272,6 +322,7 @@ begin
     safe_attachments := p_attachments;
   end if;
 
+  safe_subtasks := public.normalize_subtasks(p_subtasks);
   first_assignee := nullif(safe_assignees ->> 0, '');
 
   insert into public.tasks (
@@ -282,7 +333,8 @@ begin
     assignee_ids,
     assigned_by_id,
     created_by,
-    attachments
+    attachments,
+    subtasks
   )
   values (
     trim(p_title),
@@ -292,8 +344,124 @@ begin
     safe_assignees,
     case when jsonb_array_length(safe_assignees) = 0 then null else me.email end,
     me.email,
-    safe_attachments
+    safe_attachments,
+    safe_subtasks
   )
+  returning * into task_row;
+
+  return task_row;
+end;
+$$;
+
+create or replace function public.update_task(
+  p_task_id uuid,
+  p_title text,
+  p_description text,
+  p_subtasks jsonb default '[]'::jsonb
+)
+returns public.tasks
+language plpgsql
+security definer
+set search_path = public
+set row_security = off
+as $$
+declare
+  me public.profiles%rowtype;
+  task_row public.tasks%rowtype;
+  safe_subtasks jsonb;
+begin
+  select * into me from public.current_profile();
+  if me.role != 'leader' then
+    raise exception 'Leaders only';
+  end if;
+
+  if nullif(trim(coalesce(p_title, '')), '') is null then
+    raise exception 'Title is required';
+  end if;
+
+  safe_subtasks := public.normalize_subtasks(p_subtasks);
+
+  update public.tasks
+  set title = trim(p_title),
+      description = trim(coalesce(p_description, '')),
+      subtasks = safe_subtasks,
+      updated_at = now()
+  where id = p_task_id
+  returning * into task_row;
+
+  if not found then
+    raise exception 'Task not found';
+  end if;
+
+  return task_row;
+end;
+$$;
+
+create or replace function public.set_subtask_done(
+  p_task_id uuid,
+  p_subtask_id text,
+  p_done boolean
+)
+returns public.tasks
+language plpgsql
+security definer
+set search_path = public
+set row_security = off
+as $$
+declare
+  me public.profiles%rowtype;
+  task_row public.tasks%rowtype;
+  current public.tasks%rowtype;
+  next_subtasks jsonb := '[]'::jsonb;
+  item jsonb;
+  subtask_found boolean := false;
+  any_done boolean := false;
+begin
+  select * into me from public.current_profile();
+
+  select * into current from public.tasks where id = p_task_id;
+  if not found then
+    raise exception 'Task not found';
+  end if;
+
+  if not (
+    me.email = current.assignee_id
+    or coalesce(current.assignee_ids, '[]'::jsonb) @> to_jsonb(me.email)
+  ) then
+    raise exception 'Only people on this task can check off subtasks';
+  end if;
+
+  if nullif(trim(coalesce(p_subtask_id, '')), '') is null then
+    raise exception 'Subtask id is required';
+  end if;
+
+  for item in select value from jsonb_array_elements(coalesce(current.subtasks, '[]'::jsonb))
+  loop
+    if (item ->> 'id') = p_subtask_id then
+      subtask_found := true;
+      item := jsonb_set(item, '{done}', to_jsonb(coalesce(p_done, false)));
+    end if;
+    if coalesce((item ->> 'done')::boolean, false) then
+      any_done := true;
+    end if;
+    next_subtasks := next_subtasks || jsonb_build_array(item);
+  end loop;
+
+  if not subtask_found then
+    raise exception 'Subtask not found';
+  end if;
+
+  update public.tasks
+  set subtasks = next_subtasks,
+      status = case
+        when coalesce(p_done, false)
+          and any_done
+          and current.status in ('just_started', 'unclaimed')
+        then 'in_progress'
+        else current.status
+      end,
+      updated_at = now()
+  where id = p_task_id
   returning * into task_row;
 
   return task_row;
@@ -641,7 +809,9 @@ grant select on public.profiles to authenticated;
 grant select on public.tasks to authenticated;
 grant execute on function public.sync_profile() to authenticated;
 grant execute on function public.resolve_password_login(text, text) to anon, authenticated;
-grant execute on function public.add_task(text, text, text, jsonb, jsonb) to authenticated;
+grant execute on function public.add_task(text, text, text, jsonb, jsonb, jsonb) to authenticated;
+grant execute on function public.update_task(uuid, text, text, jsonb) to authenticated;
+grant execute on function public.set_subtask_done(uuid, text, boolean) to authenticated;
 grant execute on function public.set_task_attachments(uuid, jsonb) to authenticated;
 grant execute on function public.claim_task(uuid) to authenticated;
 grant execute on function public.assign_task(uuid, text, jsonb) to authenticated;

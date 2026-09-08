@@ -1,4 +1,4 @@
-import type { Person, Task, TaskAttachment, TaskStatus } from "../types";
+import type { Person, Subtask, Task, TaskAttachment, TaskStatus } from "../types";
 
 export interface TaskRow {
   id: string;
@@ -13,6 +13,7 @@ export interface TaskRow {
   created_at: string;
   updated_at: string;
   attachments?: TaskAttachment[] | null;
+  subtasks?: Subtask[] | null;
 }
 
 export interface ProfileRow {
@@ -53,6 +54,24 @@ function mapAttachments(raw: TaskRow["attachments"]): TaskAttachment[] {
   );
 }
 
+function mapSubtasks(raw: TaskRow["subtasks"]): Subtask[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (item): item is Subtask =>
+        Boolean(item) &&
+        typeof item === "object" &&
+        typeof item.id === "string" &&
+        typeof item.title === "string" &&
+        item.title.trim().length > 0,
+    )
+    .map((item) => ({
+      id: item.id,
+      title: item.title.trim(),
+      done: Boolean(item.done),
+    }));
+}
+
 export function mapTask(row: TaskRow): Task {
   const assigneeIds = parseAssigneeIds(row);
 
@@ -67,6 +86,7 @@ export function mapTask(row: TaskRow): Task {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     attachments: mapAttachments(row.attachments),
+    subtasks: mapSubtasks(row.subtasks),
   };
 }
 

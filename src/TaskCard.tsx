@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Avatar from "./Avatar";
+import EditTaskModal from "./EditTaskModal";
 import { formatAssigneeNames, taskIncludesPerson } from "./lib/taskAssignees";
 import PartnerPicker from "./PartnerPicker";
 import TaskAssignField from "./TaskAssignField";
@@ -33,12 +34,14 @@ export function TaskCard({
   showDescription?: boolean;
   onOpen?: () => void;
 }) {
-  const { claimTask, assignTask, setPartners, updateStatus, deleteTask, assignableRoster, personById } =
+  const { claimTask, assignTask, setPartners, setSubtaskDone, updateStatus, deleteTask, assignableRoster, personById } =
     useApp();
   const user = useCurrentUser();
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [assignError, setAssignError] = useState("");
   const [assigning, setAssigning] = useState(false);
+  const [subtaskBusyId, setSubtaskBusyId] = useState<string | null>(null);
+  const [showEditTask, setShowEditTask] = useState(false);
   const [multiplePeople, setMultiplePeople] = useState(task.assigneeIds.length > 1);
   const [showPartnerPicker, setShowPartnerPicker] = useState(false);
   const [showAssignPicker, setShowAssignPicker] = useState(false);
@@ -149,7 +152,16 @@ export function TaskCard({
     await applyPartnersChange(ids);
   }
 
+  async function handleSubtaskToggle(subtaskId: string, done: boolean) {
+    setSubtaskBusyId(subtaskId);
+    setAssignError("");
+    const message = await setSubtaskDone(task.id, subtaskId, done);
+    if (message) setAssignError(message);
+    setSubtaskBusyId(null);
+  }
+
   const assigneeLabel = formatAssigneeNames(task.assigneeIds, personById);
+  const doneSubtasks = task.subtasks.filter((item) => item.done).length;
 
   return (
     <article className="task-card">
@@ -174,6 +186,44 @@ export function TaskCard({
         ) : (
           <p className="muted">No description yet.</p>
         ))}
+
+      {showDescription && task.subtasks.length > 0 && (
+        <div className="task-subtasks">
+          <p className="attach-heading">
+            Subtasks
+            <span className="muted" style={{ fontWeight: 500 }}>
+              {" "}
+              · {doneSubtasks}/{task.subtasks.length} done
+            </span>
+          </p>
+          <ul className="subtask-list">
+            {task.subtasks.map((subtask) => (
+              <li key={subtask.id} className={subtask.done ? "done" : ""}>
+                {canUpdate ? (
+                  <label className="subtask-check">
+                    <input
+                      type="checkbox"
+                      checked={subtask.done}
+                      disabled={subtaskBusyId === subtask.id || isComplete}
+                      onChange={(event) => {
+                        void handleSubtaskToggle(subtask.id, event.target.checked);
+                      }}
+                    />
+                    <span>{subtask.title}</span>
+                  </label>
+                ) : (
+                  <span className="subtask-readonly">
+                    <span className={`subtask-mark ${subtask.done ? "checked" : ""}`} aria-hidden>
+                      {subtask.done ? "✓" : ""}
+                    </span>
+                    <span>{subtask.title}</span>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {showDescription && task.attachments.length > 0 && (
         <div className="task-attachments">
@@ -201,6 +251,12 @@ export function TaskCard({
       {!showDescription && task.attachments.length > 0 && (
         <p className="attach-count muted">
           {task.attachments.length} attachment{task.attachments.length === 1 ? "" : "s"}
+        </p>
+      )}
+
+      {!showDescription && task.subtasks.length > 0 && (
+        <p className="attach-count muted">
+          {doneSubtasks}/{task.subtasks.length} subtask{task.subtasks.length === 1 ? "" : "s"} done
         </p>
       )}
 
@@ -253,6 +309,15 @@ export function TaskCard({
 
         {isLeader && (
           <div className="task-actions">
+            {showDescription && (
+              <button
+                className="btn ghost sm"
+                type="button"
+                onClick={() => setShowEditTask(true)}
+              >
+                Edit
+              </button>
+            )}
             {confirmRemove ? (
               <>
                 <span className="muted">
@@ -378,6 +443,10 @@ export function TaskCard({
         <p className="error" style={{ marginTop: 10 }}>
           {assignError}
         </p>
+      )}
+
+      {showEditTask && (
+        <EditTaskModal task={task} onClose={() => setShowEditTask(false)} />
       )}
     </article>
   );

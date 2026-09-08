@@ -14,6 +14,12 @@ export interface TaskAttachment {
   size?: number;
 }
 
+export interface Subtask {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
 export interface Person {
   id: string;
   name: string;
@@ -34,6 +40,7 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   attachments: TaskAttachment[];
+  subtasks: Subtask[];
 }
 
 export interface Session {

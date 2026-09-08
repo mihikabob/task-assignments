@@ -430,6 +430,86 @@ p {
   padding-top: 4px;
 }
 
+.subtask-editor {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.subtask-edit-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.subtask-edit-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.subtask-edit-index {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  min-width: 1.5rem;
+}
+
+.task-subtasks {
+  margin-top: 16px;
+}
+
+.subtask-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.subtask-list li.done .subtask-check span,
+.subtask-list li.done .subtask-readonly span:last-child {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.subtask-check,
+.subtask-readonly {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.subtask-check input {
+  margin-top: 2px;
+}
+
+.subtask-mark {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.subtask-mark.checked {
+  background: #e8f5e9;
+  border-color: #2e7d32;
+  color: #2e7d32;
+}
+
 .attach-link-row {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) auto;
