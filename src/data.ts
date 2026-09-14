@@ -68,8 +68,6 @@ export const loginNames = [...new Set(people.map((person) => person.name))].sort
   a.localeCompare(b),
 );
 
-export const DEMO_PASSWORD = "password";
-
 /** Map a full name to the single Auth/roster email for that person. */
 export function resolveLoginEmail(name: string): string | null {
   const needle = name.trim().toLowerCase();

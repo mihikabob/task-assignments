@@ -2,14 +2,32 @@ import { useState, type FormEvent } from "react";
 import { loginNames } from "./data";
 import { supabaseConfigured, useApp } from "./store";
 
+type LoginMode = "signin" | "create";
+
 export default function Login() {
-  const { signInWithGoogle, signInWithNamePassword, authError, clearAuthError } = useApp();
+  const {
+    signInWithGoogle,
+    signInWithNamePassword,
+    createAccount,
+    authError,
+    clearAuthError,
+  } = useApp();
+  const [mode, setMode] = useState<LoginMode>("signin");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState<"password" | "google" | null>(null);
+  const [loading, setLoading] = useState<"password" | "create" | "google" | null>(null);
 
   const displayError = error || authError || "";
+
+  function switchMode(next: LoginMode) {
+    setMode(next);
+    setError("");
+    clearAuthError();
+    setPassword("");
+    setConfirmPassword("");
+  }
 
   async function handlePasswordSignIn(event: FormEvent) {
     event.preventDefault();
@@ -17,6 +35,20 @@ export default function Login() {
     setError("");
     clearAuthError();
     const message = await signInWithNamePassword(name, password);
+    if (message) setError(message);
+    setLoading(null);
+  }
+
+  async function handleCreateAccount(event: FormEvent) {
+    event.preventDefault();
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+    setLoading("create");
+    setError("");
+    clearAuthError();
+    const message = await createAccount(name, password);
     if (message) setError(message);
     setLoading(null);
   }
@@ -57,50 +89,140 @@ export default function Login() {
       <section className="login">
         <div className="login-shell">
           <div className="login-form">
-            <p className="page-kicker">Sign in</p>
-            <h2 style={{ fontSize: 28 }}>Welcome back</h2>
-
-            <form onSubmit={handlePasswordSignIn}>
-              <label>
-                Full name
-                <input
-                  className="field"
-                  list="roster-names"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="First Last"
-                  autoComplete="username"
-                  required
-                />
-                <datalist id="roster-names">
-                  {loginNames.map((loginName) => (
-                    <option key={loginName} value={loginName} />
-                  ))}
-                </datalist>
-              </label>
-
-              <label>
-                Password
-                <input
-                  className="field"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Password"
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
-
+            <div className="login-mode-tabs" role="tablist" aria-label="Sign in options">
               <button
-                className="btn primary"
-                type="submit"
-                style={{ width: "100%" }}
+                type="button"
+                role="tab"
+                className={mode === "signin" ? "active" : ""}
+                aria-selected={mode === "signin"}
+                onClick={() => switchMode("signin")}
                 disabled={loading !== null}
               >
-                {loading === "password" ? "Signing in…" : "Sign in"}
+                Log in
               </button>
-            </form>
+              <button
+                type="button"
+                role="tab"
+                className={mode === "create" ? "active" : ""}
+                aria-selected={mode === "create"}
+                onClick={() => switchMode("create")}
+                disabled={loading !== null}
+              >
+                Create account
+              </button>
+            </div>
+
+            {mode === "signin" ? (
+              <>
+                <p className="page-kicker">Sign in</p>
+                <h2 style={{ fontSize: 28 }}>Welcome back</h2>
+                <p className="muted login-hint">
+                  Use the password you chose when you created your account.
+                </p>
+
+                <form onSubmit={handlePasswordSignIn}>
+                  <label>
+                    Full name
+                    <select
+                      className="field"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      required
+                    >
+                      <option value="">Select your name</option>
+                      {loginNames.map((loginName) => (
+                        <option key={loginName} value={loginName}>
+                          {loginName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    Password
+                    <input
+                      className="field"
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Your password"
+                      autoComplete="current-password"
+                      required
+                    />
+                  </label>
+
+                  <button
+                    className="btn primary"
+                    type="submit"
+                    style={{ width: "100%" }}
+                    disabled={loading !== null}
+                  >
+                    {loading === "password" ? "Signing in…" : "Log in with name and password"}
+                  </button>
+                </form>
+              </>
+            ) : (
+              <>
+                <p className="page-kicker">Create account</p>
+                <h2 style={{ fontSize: 28 }}>Set your password</h2>
+
+                <form onSubmit={handleCreateAccount}>
+                  <label>
+                    Full name
+                    <select
+                      className="field"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      required
+                    >
+                      <option value="">Select your name</option>
+                      {loginNames.map((loginName) => (
+                        <option key={loginName} value={loginName}>
+                          {loginName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    Password
+                    <input
+                      className="field"
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="At least 6 characters"
+                      autoComplete="new-password"
+                      minLength={6}
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    Confirm password
+                    <input
+                      className="field"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      placeholder="Re-enter password"
+                      autoComplete="new-password"
+                      minLength={6}
+                      required
+                    />
+                  </label>
+
+                  <button
+                    className="btn primary"
+                    type="submit"
+                    style={{ width: "100%" }}
+                    disabled={loading !== null}
+                  >
+                    {loading === "create" ? "Creating…" : "Create account"}
+                  </button>
+                </form>
+              </>
+            )}
 
             <div className="login-divider">
               <span>or</span>

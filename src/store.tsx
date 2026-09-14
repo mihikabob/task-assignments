@@ -16,7 +16,7 @@ import {
   type RosterRow,
   type TaskRow,
 } from "./lib/database";
-import { DEMO_PASSWORD, people as seedPeople, resolveLoginEmail, uniquePeopleByName } from "./data";
+import { people as seedPeople, resolveLoginEmail, uniquePeopleByName } from "./data";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import {
   ATTACHMENT_BUCKET,
@@ -39,6 +39,7 @@ interface AppState {
   personById: (id: string | null) => Person | undefined;
   signInWithGoogle: () => Promise<string | null>;
   signInWithNamePassword: (name: string, password: string) => Promise<string | null>;
+  createAccount: (name: string, password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
   addTask: (input: {
     title: string;
@@ -401,23 +402,84 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         setAuthError(null);
 
-        const email = resolveLoginEmail(name);
-        if (!email || password !== DEMO_PASSWORD) {
-          return "Invalid name or password";
-        }
+        if (!name.trim()) return "Choose your name";
+        if (!password) return "Enter your password";
 
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password: DEMO_PASSWORD,
-        });
-        if (error) {
-          const message = formatDbError(error);
-          if (/invalid login credentials/i.test(message)) {
-            return "Invalid name or password. Run supabase/migrate_password_login.sql in the Supabase SQL Editor first (and enable the Email auth provider).";
+        try {
+          const { data: resolved, error: resolveError } = await supabase.rpc(
+            "resolve_roster_login",
+            { p_name: name.trim() },
+          );
+          if (resolveError) {
+            const message = formatDbError(resolveError);
+            if (isMissingRpc(message)) {
+              return "Password login is not set up yet. Run supabase/migrate_per_person_passwords.sql in the Supabase SQL Editor.";
+            }
+            return message;
           }
-          return message;
+
+          const row = (Array.isArray(resolved) ? resolved[0] : resolved) as
+            | { email?: string; password_set?: boolean }
+            | null;
+          const email = row?.email ?? resolveLoginEmail(name);
+          if (!email) return "Name is not on the internship roster";
+
+          if (row && row.password_set === false) {
+            return "No password set yet. Create an account first.";
+          }
+
+          const { error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+          if (error) {
+            const message = formatDbError(error);
+            if (/invalid login credentials/i.test(message)) {
+              return "Invalid name or password";
+            }
+            return message;
+          }
+          return null;
+        } catch (error) {
+          return formatDbError(error);
         }
-        return null;
+      },
+      createAccount: async (name, password) => {
+        if (!supabaseConfigured) {
+          return "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.";
+        }
+        setAuthError(null);
+
+        if (!name.trim()) return "Choose your name";
+        if (password.length < 6) return "Password must be at least 6 characters";
+
+        try {
+          const { data, error } = await supabase.rpc("create_roster_password", {
+            p_name: name.trim(),
+            p_password: password,
+          });
+          if (error) {
+            const message = formatDbError(error);
+            if (isMissingRpc(message)) {
+              return "Account setup is not enabled yet. Run supabase/migrate_per_person_passwords.sql in the Supabase SQL Editor.";
+            }
+            return message;
+          }
+
+          const email =
+            (typeof data === "string" && data) ||
+            resolveLoginEmail(name);
+          if (!email) return "Name is not on the internship roster";
+
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+          if (signInError) return formatDbError(signInError);
+          return null;
+        } catch (error) {
+          return formatDbError(error);
+        }
       },
       signOut: async () => {
         await supabase.auth.signOut();
