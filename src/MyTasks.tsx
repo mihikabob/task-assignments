@@ -5,7 +5,10 @@ import { useApp, useCurrentUser } from "./store";
 export default function MyTasks({ onOpenTask }: { onOpenTask: (taskId: string) => void }) {
   const { tasks, personById } = useApp();
   const user = useCurrentUser();
-  const mine = tasks.filter((task) => taskIncludesPerson(task, user, personById));
+  const mine = tasks.filter(
+    (task) =>
+      task.status !== "complete" && taskIncludesPerson(task, user, personById),
+  );
   const isLeader = user?.role === "leader";
 
   return (
@@ -20,7 +23,7 @@ export default function MyTasks({ onOpenTask }: { onOpenTask: (taskId: string) =
       <div className="task-list">
         {mine.length === 0 ? (
           <div className="panel">
-            <p className="empty">No tasks yet.</p>
+            <p className="empty">No active tasks yet.</p>
           </div>
         ) : (
           mine.map((task) => (

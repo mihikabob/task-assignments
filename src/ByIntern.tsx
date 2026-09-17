@@ -41,13 +41,20 @@ export default function ByIntern({ onOpenTask }: { onOpenTask: (taskId: string) 
         );
         ids.add(intern.id);
 
-        const assigned = tasks.filter((task) =>
-          task.assigneeIds.some((id) => ids.has(id)),
+        const assigned = tasks.filter(
+          (task) =>
+            task.status !== "complete" &&
+            task.assigneeIds.some((id) => ids.has(id)),
         );
+        const completedCount = tasks.filter(
+          (task) =>
+            task.status === "complete" &&
+            task.assigneeIds.some((id) => ids.has(id)),
+        ).length;
         return {
           intern,
           assigned,
-          complete: assigned.filter((task) => task.status === "complete").length,
+          complete: completedCount,
         };
       }),
     [tasks, displayInterns, people, internRoster],
@@ -99,7 +106,8 @@ export default function ByIntern({ onOpenTask }: { onOpenTask: (taskId: string) 
                   </span>
                 </span>
                 <span className="counts">
-                  {complete}/{assigned.length}
+                  {assigned.length} active
+                  {complete > 0 ? ` · ${complete} done` : ""}
                 </span>
               </button>
             );
@@ -113,14 +121,14 @@ export default function ByIntern({ onOpenTask }: { onOpenTask: (taskId: string) 
               <h2 style={{ fontSize: 26 }}>{selected.name}</h2>
               <p>
                 {selectedTasks.length === 0
-                  ? "No tasks assigned yet."
-                  : `${selectedTasks.length} assigned task${selectedTasks.length === 1 ? "" : "s"}.`}
+                  ? "No active tasks assigned."
+                  : `${selectedTasks.length} active task${selectedTasks.length === 1 ? "" : "s"}.`}
               </p>
             </div>
           </div>
           <div className="task-list">
             {selectedTasks.length === 0 ? (
-              <p className="empty">This intern does not have any tasks yet.</p>
+              <p className="empty">This intern does not have any active tasks.</p>
             ) : (
               selectedTasks.map((task) => (
                 <TaskCard

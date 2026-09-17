@@ -3,12 +3,11 @@ import { TaskCard } from "./TaskCard";
 import { useApp } from "./store";
 import type { TaskStatus } from "./types";
 
-const FILTERS: { id: "all" | TaskStatus; label: string }[] = [
+const FILTERS: { id: "all" | Exclude<TaskStatus, "complete">; label: string }[] = [
   { id: "all", label: "All" },
   { id: "unclaimed", label: "Open" },
   { id: "just_started", label: "Just started" },
   { id: "in_progress", label: "In progress" },
-  { id: "complete", label: "Complete" },
 ];
 
 export default function AllTasks({
@@ -18,15 +17,19 @@ export default function AllTasks({
   onAdd?: () => void;
   onOpenTask: (taskId: string) => void;
 }) {
-  const { tasks, session, discardCompleted, personById } = useApp();
+  const { tasks, session, personById } = useApp();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("all");
   const [query, setQuery] = useState("");
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const isLeader = session?.role === "leader";
+
+  const activeTasks = useMemo(
+    () => tasks.filter((task) => task.status !== "complete"),
+    [tasks],
+  );
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return tasks
+    return activeTasks
       .filter((task) => {
         const assigneeNames = task.assigneeIds
           .map((id) => personById(id)?.name.toLowerCase() ?? "")
@@ -46,13 +49,13 @@ export default function AllTasks({
         if (byClaim !== 0) return byClaim;
         return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
       });
-  }, [tasks, filter, query, personById]);
+  }, [activeTasks, filter, query, personById, tasks]);
 
   const counts = {
-    all: tasks.length,
-    unclaimed: tasks.filter((task) => task.status === "unclaimed").length,
-    just_started: tasks.filter((task) => task.status === "just_started").length,
-    in_progress: tasks.filter((task) => task.status === "in_progress").length,
+    all: activeTasks.length,
+    unclaimed: activeTasks.filter((task) => task.status === "unclaimed").length,
+    just_started: activeTasks.filter((task) => task.status === "just_started").length,
+    in_progress: activeTasks.filter((task) => task.status === "in_progress").length,
     complete: tasks.filter((task) => task.status === "complete").length,
   };
 
@@ -65,13 +68,6 @@ export default function AllTasks({
         </div>
         {isLeader && (
           <div className="head-actions">
-            <button
-              className="btn ghost"
-              onClick={() => setConfirmDiscard(true)}
-              disabled={counts.complete === 0}
-            >
-              Discard completed
-            </button>
             <button className="btn primary" onClick={onAdd}>
               Add a task
             </button>
@@ -83,7 +79,7 @@ export default function AllTasks({
         <div className="stats">
           <div className="stat">
             <b>{counts.all}</b>
-            <span>Total</span>
+            <span>Active</span>
           </div>
           <div className="stat">
             <b>{counts.unclaimed}</b>
@@ -91,11 +87,11 @@ export default function AllTasks({
           </div>
           <div className="stat">
             <b>{counts.just_started + counts.in_progress}</b>
-            <span>Active</span>
+            <span>In motion</span>
           </div>
           <div className="stat">
             <b>{counts.complete}</b>
-            <span>Complete</span>
+            <span>Completed</span>
           </div>
         </div>
       )}
@@ -119,35 +115,6 @@ export default function AllTasks({
           placeholder="Search tasks or people"
         />
       </div>
-
-      {confirmDiscard && isLeader && (
-        <div className="overlay" onClick={() => setConfirmDiscard(false)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <p className="page-kicker">Leaders only</p>
-            <h2 style={{ fontSize: 28 }}>Discard completed tasks?</h2>
-            <p className="muted" style={{ marginTop: 8 }}>
-              This removes {counts.complete} completed task
-              {counts.complete === 1 ? "" : "s"} from the board. Open and in-progress
-              work stays.
-            </p>
-            <div className="actions">
-              <button className="btn ghost" type="button" onClick={() => setConfirmDiscard(false)}>
-                Keep them
-              </button>
-              <button
-                className="btn danger"
-                type="button"
-                onClick={() => {
-                  void discardCompleted();
-                  setConfirmDiscard(false);
-                }}
-              >
-                Discard completed
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="task-list">
         {visible.length === 0 ? (

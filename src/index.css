@@ -407,6 +407,14 @@ p {
   color: var(--ink-soft);
 }
 
+.task-description.preview {
+  margin-top: 10px;
+  white-space: normal;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .task-attachments {
   margin-top: 16px;
 }

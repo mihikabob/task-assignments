@@ -48,4 +48,4 @@ export interface Session {
   role: Role;
 }
 
-export type Page = "all-tasks" | "my-tasks" | "by-intern";
+export type Page = "all-tasks" | "my-tasks" | "by-intern" | "completed";

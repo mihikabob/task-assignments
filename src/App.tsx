@@ -3,6 +3,7 @@ import AddTaskModal from "./AddTaskModal";
 import AllTasks from "./AllTasks";
 import Avatar from "./Avatar";
 import ByIntern from "./ByIntern";
+import CompletedTasks from "./CompletedTasks";
 import Login from "./Login";
 import MyTasks from "./MyTasks";
 import ProfileDrawer from "./ProfileDrawer";
@@ -41,10 +42,12 @@ function Workspace() {
         { id: "all-tasks", label: "All tasks" },
         { id: "my-tasks", label: "My tasks" },
         { id: "by-intern", label: "Tasks by intern" },
+        { id: "completed", label: "Completed" },
       ]
     : [
         { id: "all-tasks", label: "Master list" },
         { id: "my-tasks", label: "My tasks" },
+        { id: "completed", label: "Completed" },
       ];
 
   return (
@@ -97,6 +100,7 @@ function Workspace() {
             )}
             {homePage === "my-tasks" && <MyTasks onOpenTask={setTaskId} />}
             {homePage === "by-intern" && isLeader && <ByIntern onOpenTask={setTaskId} />}
+            {homePage === "completed" && <CompletedTasks onOpenTask={setTaskId} />}
           </>
         )}
       </main>

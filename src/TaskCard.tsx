@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import Avatar from "./Avatar";
 import EditTaskModal from "./EditTaskModal";
 import { formatAssigneeNames, taskIncludesPerson } from "./lib/taskAssignees";
+import { previewDescription } from "./lib/text";
 import PartnerPicker from "./PartnerPicker";
 import TaskAssignField from "./TaskAssignField";
 import type { Task, TaskStatus } from "./types";
@@ -185,6 +186,13 @@ export function TaskCard({
           <p className="task-description">{task.description}</p>
         ) : (
           <p className="muted">No description yet.</p>
+        ))}
+
+      {!showDescription &&
+        (task.description.trim() ? (
+          <p className="task-description preview">{previewDescription(task.description)}</p>
+        ) : (
+          <p className="muted task-description preview">No description yet.</p>
         ))}
 
       {showDescription && task.subtasks.length > 0 && (
