@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
+import CategoryPicker from "./CategoryPicker";
 import SubtaskEditor from "./SubtaskEditor";
 import type { EditableSubtask } from "./lib/subtasks";
 import { fromSubtasks, toSubtasksPayload } from "./lib/subtasks";
-import type { Task } from "./types";
+import type { Task, TaskCategory } from "./types";
 import { useApp } from "./store";
 
 export default function EditTaskModal({
@@ -15,6 +16,7 @@ export default function EditTaskModal({
   const { updateTask } = useApp();
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
+  const [categories, setCategories] = useState<TaskCategory[]>(task.categories);
   const [subtasks, setSubtasks] = useState<EditableSubtask[]>(() =>
     fromSubtasks(task.subtasks),
   );
@@ -32,6 +34,7 @@ export default function EditTaskModal({
         title,
         description,
         subtasks: toSubtasksPayload(subtasks),
+        categories,
       });
       if (message) {
         setError(message);
@@ -79,6 +82,8 @@ export default function EditTaskModal({
               {description.trim().length} / 8000
             </span>
           </label>
+
+          <CategoryPicker values={categories} onChange={setCategories} disabled={saving} />
 
           <SubtaskEditor items={subtasks} onChange={setSubtasks} disabled={saving} />
 

@@ -266,6 +266,34 @@ p {
   margin-bottom: 18px;
 }
 
+.toolbar.category-toolbar {
+  margin-top: -6px;
+}
+
+.category-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.category-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.category-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fff8e6;
+  border: 1px solid rgba(214, 168, 0, 0.35);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;

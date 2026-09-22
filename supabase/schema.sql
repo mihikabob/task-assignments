@@ -28,7 +28,8 @@ insert into public.roster (email, name, role) values
   ('colby.liu@taskhub.local', 'Colby Liu', 'intern'),
   ('emma.fei@taskhub.local', 'Emma Fei', 'intern'),
   ('lucas.nam@taskhub.local', 'Lucas Nam', 'intern'),
-  ('ilan.gerber@taskhub.local', 'Ilan Gerber', 'intern')
+  ('ilan.gerber@taskhub.local', 'Ilan Gerber', 'intern'),
+  ('test@taskhub.local', 'Test', 'leader')
 on conflict (email) do update set
   name = excluded.name,
   role = excluded.role;
@@ -52,6 +53,7 @@ create table if not exists public.tasks (
   created_by text not null references public.roster (email),
   attachments jsonb not null default '[]'::jsonb,
   subtasks jsonb not null default '[]'::jsonb,
+  categories jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -263,13 +265,39 @@ begin
 end;
 $$;
 
+create or replace function public.normalize_categories(p_categories jsonb)
+returns jsonb
+language plpgsql
+immutable
+as $$
+declare
+  result jsonb := '[]'::jsonb;
+  allowed text[] := array['technical', 'social_media', 'event_planning', 'other'];
+begin
+  if p_categories is null or jsonb_typeof(p_categories) is distinct from 'array' then
+    return '[]'::jsonb;
+  end if;
+
+  select coalesce(jsonb_agg(to_jsonb(v)), '[]'::jsonb)
+  into result
+  from (
+    select distinct trim(value) as v
+    from jsonb_array_elements_text(p_categories) as t(value)
+    where trim(value) = any (allowed)
+  ) as cleaned;
+
+  return coalesce(result, '[]'::jsonb);
+end;
+$$;
+
 create or replace function public.add_task(
   p_title text,
   p_description text,
   p_assignee_id text default null,
   p_assignee_ids jsonb default null,
   p_attachments jsonb default '[]'::jsonb,
-  p_subtasks jsonb default '[]'::jsonb
+  p_subtasks jsonb default '[]'::jsonb,
+  p_categories jsonb default '[]'::jsonb
 )
 returns public.tasks
 language plpgsql
@@ -283,6 +311,7 @@ declare
   safe_attachments jsonb;
   safe_assignees jsonb;
   safe_subtasks jsonb;
+  safe_categories jsonb;
   first_assignee text;
 begin
   select * into me from public.current_profile();
@@ -324,6 +353,7 @@ begin
   end if;
 
   safe_subtasks := public.normalize_subtasks(p_subtasks);
+  safe_categories := public.normalize_categories(p_categories);
   first_assignee := nullif(safe_assignees ->> 0, '');
 
   insert into public.tasks (
@@ -335,7 +365,8 @@ begin
     assigned_by_id,
     created_by,
     attachments,
-    subtasks
+    subtasks,
+    categories
   )
   values (
     trim(p_title),
@@ -346,7 +377,8 @@ begin
     case when jsonb_array_length(safe_assignees) = 0 then null else me.email end,
     me.email,
     safe_attachments,
-    safe_subtasks
+    safe_subtasks,
+    safe_categories
   )
   returning * into task_row;
 
@@ -358,7 +390,8 @@ create or replace function public.update_task(
   p_task_id uuid,
   p_title text,
   p_description text,
-  p_subtasks jsonb default '[]'::jsonb
+  p_subtasks jsonb default '[]'::jsonb,
+  p_categories jsonb default '[]'::jsonb
 )
 returns public.tasks
 language plpgsql
@@ -370,6 +403,7 @@ declare
   me public.profiles%rowtype;
   task_row public.tasks%rowtype;
   safe_subtasks jsonb;
+  safe_categories jsonb;
 begin
   select * into me from public.current_profile();
   if me.role != 'leader' then
@@ -381,11 +415,13 @@ begin
   end if;
 
   safe_subtasks := public.normalize_subtasks(p_subtasks);
+  safe_categories := public.normalize_categories(p_categories);
 
   update public.tasks
   set title = trim(p_title),
       description = trim(coalesce(p_description, '')),
       subtasks = safe_subtasks,
+      categories = safe_categories,
       updated_at = now()
   where id = p_task_id
   returning * into task_row;
@@ -928,8 +964,8 @@ grant execute on function public.sync_profile() to authenticated;
 grant execute on function public.resolve_roster_login(text) to anon, authenticated;
 grant execute on function public.create_roster_password(text, text) to anon, authenticated;
 grant execute on function public.resolve_password_login(text, text) to anon, authenticated;
-grant execute on function public.add_task(text, text, text, jsonb, jsonb, jsonb) to authenticated;
-grant execute on function public.update_task(uuid, text, text, jsonb) to authenticated;
+grant execute on function public.add_task(text, text, text, jsonb, jsonb, jsonb, jsonb) to authenticated;
+grant execute on function public.update_task(uuid, text, text, jsonb, jsonb) to authenticated;
 grant execute on function public.set_subtask_done(uuid, text, boolean) to authenticated;
 grant execute on function public.set_task_attachments(uuid, jsonb) to authenticated;
 grant execute on function public.claim_task(uuid) to authenticated;

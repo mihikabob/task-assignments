@@ -1,4 +1,5 @@
-import type { Person, Subtask, Task, TaskAttachment, TaskStatus } from "../types";
+import type { Person, Subtask, Task, TaskAttachment, TaskCategory, TaskStatus } from "../types";
+import { normalizeCategories } from "./categories";
 
 export interface TaskRow {
   id: string;
@@ -14,6 +15,7 @@ export interface TaskRow {
   updated_at: string;
   attachments?: TaskAttachment[] | null;
   subtasks?: Subtask[] | null;
+  categories?: TaskCategory[] | string[] | null;
 }
 
 export interface ProfileRow {
@@ -87,6 +89,7 @@ export function mapTask(row: TaskRow): Task {
     updatedAt: row.updated_at,
     attachments: mapAttachments(row.attachments),
     subtasks: mapSubtasks(row.subtasks),
+    categories: normalizeCategories(row.categories),
   };
 }
 

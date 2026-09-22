@@ -1,13 +1,19 @@
 import { useMemo, useState } from "react";
 import { TaskCard } from "./TaskCard";
+import { TASK_CATEGORIES } from "./lib/categories";
 import { useApp } from "./store";
-import type { TaskStatus } from "./types";
+import type { TaskCategory, TaskStatus } from "./types";
 
-const FILTERS: { id: "all" | Exclude<TaskStatus, "complete">; label: string }[] = [
+const STATUS_FILTERS: { id: "all" | Exclude<TaskStatus, "complete">; label: string }[] = [
   { id: "all", label: "All" },
   { id: "unclaimed", label: "Open" },
   { id: "just_started", label: "Just started" },
   { id: "in_progress", label: "In progress" },
+];
+
+const CATEGORY_FILTERS: { id: "all" | TaskCategory; label: string }[] = [
+  { id: "all", label: "All categories" },
+  ...TASK_CATEGORIES,
 ];
 
 export default function AllTasks({
@@ -18,7 +24,9 @@ export default function AllTasks({
   onOpenTask: (taskId: string) => void;
 }) {
   const { tasks, session, personById } = useApp();
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("all");
+  const [filter, setFilter] = useState<(typeof STATUS_FILTERS)[number]["id"]>("all");
+  const [categoryFilter, setCategoryFilter] =
+    useState<(typeof CATEGORY_FILTERS)[number]["id"]>("all");
   const [query, setQuery] = useState("");
   const isLeader = session?.role === "leader";
 
@@ -40,7 +48,9 @@ export default function AllTasks({
           task.description.toLowerCase().includes(q) ||
           assigneeNames.includes(q);
         const matchesFilter = filter === "all" || task.status === filter;
-        return matchesQuery && matchesFilter;
+        const matchesCategory =
+          categoryFilter === "all" || task.categories.includes(categoryFilter);
+        return matchesQuery && matchesFilter && matchesCategory;
       })
       .sort((a, b) => {
         const rank = (task: (typeof tasks)[number]) =>
@@ -49,7 +59,7 @@ export default function AllTasks({
         if (byClaim !== 0) return byClaim;
         return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
       });
-  }, [activeTasks, filter, query, personById, tasks]);
+  }, [activeTasks, filter, categoryFilter, query, personById, tasks]);
 
   const counts = {
     all: activeTasks.length,
@@ -98,7 +108,7 @@ export default function AllTasks({
 
       <div className="toolbar">
         <div className="chips">
-          {FILTERS.map((item) => (
+          {STATUS_FILTERS.map((item) => (
             <button
               key={item.id}
               className={`chip ${filter === item.id ? "active" : ""}`}
@@ -114,6 +124,20 @@ export default function AllTasks({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search tasks or people"
         />
+      </div>
+
+      <div className="toolbar category-toolbar">
+        <div className="chips">
+          {CATEGORY_FILTERS.map((item) => (
+            <button
+              key={item.id}
+              className={`chip ${categoryFilter === item.id ? "active" : ""}`}
+              onClick={() => setCategoryFilter(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="task-list">

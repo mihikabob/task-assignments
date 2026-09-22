@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
+import CategoryPicker from "./CategoryPicker";
 import SubtaskEditor from "./SubtaskEditor";
 import TaskAssignField from "./TaskAssignField";
 import {
@@ -9,6 +10,7 @@ import {
 } from "./lib/attachments";
 import type { EditableSubtask } from "./lib/subtasks";
 import { toSubtasksPayload } from "./lib/subtasks";
+import type { TaskCategory } from "./types";
 import { useApp } from "./store";
 
 type PendingLink = { id: string; label: string; url: string };
@@ -23,6 +25,7 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
   const [assigneeId, setAssigneeId] = useState("");
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [subtasks, setSubtasks] = useState<EditableSubtask[]>([]);
+  const [categories, setCategories] = useState<TaskCategory[]>([]);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLabel, setLinkLabel] = useState("");
   const [links, setLinks] = useState<PendingLink[]>([]);
@@ -84,6 +87,7 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
         links: links.map(({ label, url }) => ({ label, url })),
         files: files.map((item) => item.file),
         subtasks: toSubtasksPayload(subtasks),
+        categories,
       });
       if (message) {
         setError(message);
@@ -131,6 +135,8 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
               {description.trim().length} / 8000
             </span>
           </label>
+
+          <CategoryPicker values={categories} onChange={setCategories} disabled={saving} />
 
           <SubtaskEditor items={subtasks} onChange={setSubtasks} disabled={saving} />
 

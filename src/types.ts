@@ -2,6 +2,8 @@ export type Role = "leader" | "intern";
 
 export type TaskStatus = "unclaimed" | "just_started" | "in_progress" | "complete";
 
+export type TaskCategory = "technical" | "social_media" | "event_planning" | "other";
+
 export type AttachmentKind = "link" | "file";
 
 export interface TaskAttachment {
@@ -41,6 +43,7 @@ export interface Task {
   updatedAt: string;
   attachments: TaskAttachment[];
   subtasks: Subtask[];
+  categories: TaskCategory[];
 }
 
 export interface Session {

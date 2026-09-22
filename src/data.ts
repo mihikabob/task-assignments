@@ -40,6 +40,7 @@ function member(name: string, role: Role, personalEmail?: string | null): Person
 
 /** One roster row per person. Personal Gmail when known; otherwise password-only placeholder. */
 export const people: Person[] = [
+  member("Test", "leader"),
   member("Kip Glazer", "leader", "kip.glazer@mvla.net"),
   member("Myra Jain", "leader", "myraniaj@gmail.com"),
   member("Cinty Lin", "leader", "cinty.lin.cinty@gmail.com"),
@@ -133,6 +134,7 @@ export const seedTasks: Task[] = [
     createdAt: "2026-08-04T10:00:00.000Z",
     attachments: [],
     subtasks: [],
+    categories: [],
     updatedAt: "2026-08-12T14:20:00.000Z",
   },
   {
@@ -147,6 +149,7 @@ export const seedTasks: Task[] = [
     createdAt: "2026-08-05T11:30:00.000Z",
     attachments: [],
     subtasks: [],
+    categories: [],
     updatedAt: "2026-08-11T09:00:00.000Z",
   },
   {
@@ -161,6 +164,7 @@ export const seedTasks: Task[] = [
     createdAt: "2026-08-06T16:00:00.000Z",
     attachments: [],
     subtasks: [],
+    categories: [],
     updatedAt: "2026-08-06T16:00:00.000Z",
   },
   {
@@ -175,6 +179,7 @@ export const seedTasks: Task[] = [
     createdAt: "2026-08-01T09:00:00.000Z",
     attachments: [],
     subtasks: [],
+    categories: [],
     updatedAt: "2026-08-08T17:45:00.000Z",
   },
   {
@@ -189,6 +194,7 @@ export const seedTasks: Task[] = [
     createdAt: "2026-08-07T13:15:00.000Z",
     attachments: [],
     subtasks: [],
+    categories: [],
     updatedAt: "2026-08-07T13:15:00.000Z",
   },
   {
@@ -203,6 +209,7 @@ export const seedTasks: Task[] = [
     createdAt: "2026-08-08T10:40:00.000Z",
     attachments: [],
     subtasks: [],
+    categories: [],
     updatedAt: "2026-08-14T11:10:00.000Z",
   },
   {
@@ -217,6 +224,7 @@ export const seedTasks: Task[] = [
     createdAt: "2026-08-09T15:00:00.000Z",
     attachments: [],
     subtasks: [],
+    categories: [],
     updatedAt: "2026-08-09T15:00:00.000Z",
   },
   {
@@ -231,6 +239,7 @@ export const seedTasks: Task[] = [
     createdAt: "2026-08-10T12:00:00.000Z",
     attachments: [],
     subtasks: [],
+    categories: [],
     updatedAt: "2026-08-13T16:30:00.000Z",
   },
 ];

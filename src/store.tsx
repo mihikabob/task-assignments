@@ -24,7 +24,7 @@ import {
   newAttachmentId,
   sanitizeFileName,
 } from "./lib/attachments";
-import type { Person, Session, Subtask, Task, TaskAttachment, TaskStatus } from "./types";
+import type { Person, Session, Subtask, Task, TaskAttachment, TaskCategory, TaskStatus } from "./types";
 
 interface AppState {
   ready: boolean;
@@ -49,12 +49,14 @@ interface AppState {
     links?: { label: string; url: string }[];
     files?: File[];
     subtasks?: Subtask[];
+    categories?: TaskCategory[];
   }) => Promise<string | null>;
   updateTask: (input: {
     taskId: string;
     title: string;
     description: string;
     subtasks: Subtask[];
+    categories: TaskCategory[];
   }) => Promise<string | null>;
   setSubtaskDone: (
     taskId: string,
@@ -109,6 +111,7 @@ async function rpcAddTask(
   assigneeIds: string[],
   attachments: TaskAttachment[],
   subtasks: Subtask[],
+  categories: TaskCategory[],
   multiple: boolean,
 ) {
   const resolved = assigneeIds.filter(Boolean);
@@ -117,6 +120,7 @@ async function rpcAddTask(
     p_description: description,
     p_attachments: attachments,
     p_subtasks: subtasks,
+    p_categories: categories,
   };
 
   if (!multiple || resolved.length <= 1) {
@@ -127,6 +131,16 @@ async function rpcAddTask(
     if (!single.error) return single;
 
     const message = formatDbError(single.error);
+    if (/p_categories|categories/i.test(message) || isMissingRpc(message)) {
+      const withoutCategories = await supabase.rpc("add_task", {
+        p_title: title,
+        p_description: description,
+        p_attachments: attachments,
+        p_subtasks: subtasks,
+        p_assignee_id: resolved[0] ?? null,
+      });
+      if (!withoutCategories.error) return withoutCategories;
+    }
     if (/p_subtasks|subtasks/i.test(message) || isMissingRpc(message)) {
       const withoutSubtasks = await supabase.rpc("add_task", {
         p_title: title,
@@ -154,6 +168,16 @@ async function rpcAddTask(
   if (!multi.error) return multi;
 
   const message = formatDbError(multi.error);
+  if (/p_categories|categories/i.test(message) || isMissingRpc(message)) {
+    const withoutCategories = await supabase.rpc("add_task", {
+      p_title: title,
+      p_description: description,
+      p_attachments: attachments,
+      p_subtasks: subtasks,
+      p_assignee_ids: resolved,
+    });
+    if (!withoutCategories.error) return withoutCategories;
+  }
   if (/p_subtasks|subtasks/i.test(message) || isMissingRpc(message)) {
     const withoutSubtasks = await supabase.rpc("add_task", {
       p_title: title,
@@ -493,6 +517,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         links = [],
         files = [],
         subtasks = [],
+        categories = [],
       }) => {
         try {
           const resolvedAssignees = resolveAssigneesForDb(
@@ -522,18 +547,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }))
             .filter((item) => item.title.length > 0);
 
+          const cleanCategories = categories.filter(Boolean);
+
           const { data, error } = await rpcAddTask(
             title,
             description,
             resolvedAssignees,
             linkAttachments,
             cleanSubtasks,
+            cleanCategories,
             multiplePeople && resolvedAssignees.length > 1,
           );
           if (error) {
             const message = formatDbError(error);
             if (/could not find the function|p_attachments|attachments/i.test(message)) {
               return "Attachments are not enabled yet. Run supabase/migrate_task_attachments.sql in the Supabase SQL Editor.";
+            }
+            if (/p_categories|categories/i.test(message)) {
+              return "Categories are not enabled yet. Run supabase/migrate_task_categories.sql in the Supabase SQL Editor.";
             }
             if (isMissingRpc(message)) {
               return "Assign is not set up yet. Run supabase/migrate_multi_assignees.sql in the Supabase SQL Editor.";
@@ -643,7 +674,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return formatDbError(error);
         }
       },
-      updateTask: async ({ taskId, title, description, subtasks }) => {
+      updateTask: async ({ taskId, title, description, subtasks, categories }) => {
         try {
           const cleanSubtasks = subtasks
             .map((item) => ({
@@ -658,11 +689,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             p_title: title,
             p_description: description,
             p_subtasks: cleanSubtasks,
+            p_categories: categories,
           });
           if (error) {
             const message = formatDbError(error);
-            if (isMissingRpc(message)) {
-              return "Task editing is not enabled yet. Run supabase/migrate_task_subtasks.sql in the Supabase SQL Editor.";
+            if (isMissingRpc(message) || /p_categories|categories/i.test(message)) {
+              return "Task editing/categories are not enabled yet. Run supabase/migrate_task_categories.sql in the Supabase SQL Editor.";
             }
             return message;
           }

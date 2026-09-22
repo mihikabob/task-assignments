@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Avatar from "./Avatar";
 import EditTaskModal from "./EditTaskModal";
+import { categoryLabel } from "./lib/categories";
 import { formatAssigneeNames, taskIncludesPerson } from "./lib/taskAssignees";
 import { previewDescription } from "./lib/text";
 import PartnerPicker from "./PartnerPicker";
@@ -180,6 +181,16 @@ export function TaskCard({
         </div>
         <StatusBadge status={task.status} />
       </div>
+
+      {task.categories.length > 0 && (
+        <div className="category-tags">
+          {task.categories.map((category) => (
+            <span key={category} className="category-tag">
+              {categoryLabel(category)}
+            </span>
+          ))}
+        </div>
+      )}
 
       {showDescription &&
         (task.description.trim() ? (
